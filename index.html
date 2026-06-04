@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Veridia Transit — Virtual Map POC</title>
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <canvas id="map"></canvas>
+
+  <!-- Top-left: brand + line legend -->
+  <aside id="legend" class="panel">
+    <header class="brand">
+      <span class="brand-mark">◉</span>
+      <div>
+        <h1>Veridia Transit</h1>
+        <p class="subtitle">Virtual network · interactive POC</p>
+      </div>
+    </header>
+    <div class="legend-hint">Lines — click to focus, toggle the dot to hide</div>
+    <ul id="line-list"></ul>
+    <div class="legend-foot">
+      <span><b id="stat-stations">0</b> stations</span>
+      <span><b id="stat-vehicles">0</b> vehicles</span>
+    </div>
+  </aside>
+
+  <!-- Trip planner: choose origin + destination, get step-by-step directions -->
+  <aside id="planner" class="panel">
+    <div class="planner-h">
+      <h2>Plan a trip</h2>
+      <button id="btn-swap" title="Swap origin / destination">⇅</button>
+    </div>
+    <div class="field">
+      <label><span class="dot-a"></span> From</label>
+      <select id="from-select"><option value="">Choose start station…</option></select>
+    </div>
+    <div class="field">
+      <label><span class="dot-b"></span> To</label>
+      <select id="to-select"><option value="">Choose destination…</option></select>
+    </div>
+    <div class="planner-btns">
+      <button id="btn-route">Get directions</button>
+      <button id="btn-clear-route">Clear</button>
+    </div>
+    <p class="pick-hint">Tip: click any station on the map, then use “Set as start / destination”.</p>
+    <div id="itinerary"></div>
+  </aside>
+
+  <!-- Right: contextual info (station arrivals / vehicle details) -->
+  <aside id="inspector" class="panel hidden">
+    <button id="inspector-close" aria-label="Close">×</button>
+    <div id="inspector-body"></div>
+  </aside>
+
+  <!-- Bottom: simulation controls -->
+  <div id="controls" class="panel">
+    <button id="btn-play" class="ctrl" title="Play / pause (space)">⏸</button>
+    <div class="clock">
+      <span id="clock">08:00:00</span>
+      <small>network time</small>
+    </div>
+    <label class="speed">
+      Speed
+      <input id="speed" type="range" min="1" max="20" step="1" value="4" />
+      <span id="speed-val">4×</span>
+    </label>
+    <div class="spacer"></div>
+    <button id="btn-zoom-out" class="ctrl" title="Zoom out (−)">−</button>
+    <button id="btn-zoom-in" class="ctrl" title="Zoom in (+)">+</button>
+    <button id="btn-reset" class="ctrl wide" title="Reset view (R)">Reset view</button>
+  </div>
+
+  <div id="hint">Drag to pan · scroll to zoom · click a station for live arrivals, or a train to inspect it</div>
+
+  <script src="js/network.js"></script>
+  <script src="js/geometry.js"></script>
+  <script src="js/simulation.js"></script>
+  <script src="js/routing.js"></script>
+  <script src="js/renderer.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

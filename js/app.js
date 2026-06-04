@@ -29,6 +29,23 @@
   function stationName(id) { return net.stationsById[id].name; }
   function lineShort(line) { return line.colorKey.charAt(0).toUpperCase() + line.colorKey.slice(1) + " Line"; }
 
+  // collapse/expand the trip form (From/To inputs) within the Plan view
+  function setPlanCollapsed(collapsed) {
+    document.getElementById("view-plan").classList.toggle("form-collapsed", collapsed);
+    document.getElementById("plan-toggle").setAttribute("aria-expanded", String(!collapsed));
+  }
+  function updatePlanHeader() {
+    var el = document.getElementById("plan-summary");
+    if (view.route && view.endpoints.from && view.endpoints.to) {
+      el.innerHTML =
+        '<span class="sum-dot" style="background:var(--green)"></span>' + stationName(view.endpoints.from) +
+        '<span class="sum-arrow">→</span>' +
+        '<span class="sum-dot" style="background:var(--red)"></span>' + stationName(view.endpoints.to);
+    } else {
+      el.textContent = "Plan a trip";
+    }
+  }
+
   // index of a station within a line's ordered stop list
   function idxOnLine(line, sid) { return line.stations.indexOf(sid); }
   function terminusToward(line, boardId, alightId) {
@@ -102,16 +119,19 @@
     var f = view.endpoints.from, t = view.endpoints.to;
     var box = document.getElementById("itinerary");
     view.firstDep = null;
-    if (!f || !t) { box.innerHTML = '<p class="no-route">Pick a start and destination to see directions.</p>'; clearRouteHighlight(); return; }
-    if (f === t) { box.innerHTML = '<p class="no-route">Start and destination are the same station.</p>'; clearRouteHighlight(); return; }
+    function fail(msg) { box.innerHTML = '<p class="no-route">' + msg + "</p>"; clearRouteHighlight(); setPlanCollapsed(false); updatePlanHeader(); }
+    if (!f || !t) { fail("Pick a start and destination to see directions."); return; }
+    if (f === t) { fail("Start and destination are the same station."); return; }
     var plan = router.plan(f, t);
     view.route = plan;
-    if (!plan) { box.innerHTML = '<p class="no-route">No route found.</p>'; clearRouteHighlight(); return; }
+    if (!plan) { fail("No route found."); return; }
     view.routePath = plan.path;
     view.routeSet = {};
     plan.path.forEach(function (id) { view.routeSet[id] = true; });
     renderItinerary();
     fetchFirstDeparture(plan);   // live first-train, best-effort
+    updatePlanHeader();
+    setPlanCollapsed(true);      // fold the form away to spotlight the itinerary
   }
   function clearRouteHighlight() { view.route = view.routePath = view.routeSet = null; }
   function clearTrip() {
@@ -120,6 +140,8 @@
     clearRouteHighlight();
     syncSelects();
     document.getElementById("itinerary").innerHTML = '<p class="no-route">Pick a start and destination to see directions.</p>';
+    updatePlanHeader();
+    setPlanCollapsed(false);
   }
 
   function fetchFirstDeparture(plan) {
@@ -419,6 +441,11 @@
   });
   document.getElementById("detail-back").addEventListener("click", function () {
     view.selected = null; showView(lastTab);
+  });
+
+  // collapse / expand the trip form
+  document.getElementById("plan-toggle").addEventListener("click", function () {
+    setPlanCollapsed(!document.getElementById("view-plan").classList.contains("form-collapsed"));
   });
 
   // desktop collapse / reopen

@@ -154,6 +154,39 @@ html, body {
 
 .hint-text { font-size: 12px; color: var(--tertiary); margin: 0 0 12px; line-height: 1.45; }
 
+/* collapsible "Plan a trip" form */
+.disclosure {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  width: 100%;
+  background: var(--fill);
+  border: none; color: var(--label);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  font-size: 15px; font-weight: 600;
+  cursor: pointer;
+  margin-bottom: 12px;
+  transition: background 0.15s;
+}
+.disclosure:hover { background: var(--fill-strong); }
+.disclosure #plan-summary {
+  display: flex; align-items: center; gap: 7px; min-width: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.disclosure .chev { color: var(--secondary); flex: 0 0 auto; transition: transform 0.28s cubic-bezier(0.32,0.72,0,1); }
+#view-plan.form-collapsed .disclosure .chev { transform: rotate(-90deg); }
+.sum-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
+.sum-arrow { color: var(--tertiary); margin: 0 2px; }
+
+#plan-form {
+  overflow: hidden;
+  max-height: 520px;
+  opacity: 1;
+  transition: max-height 0.32s cubic-bezier(0.32,0.72,0,1), opacity 0.22s ease, margin 0.32s ease;
+}
+#view-plan.form-collapsed #plan-form {
+  max-height: 0; opacity: 0; margin: 0; pointer-events: none;
+}
+
 /* ============================================================
    Plan view — fields & buttons
    ============================================================ */

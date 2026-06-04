@@ -47,22 +47,28 @@
     <div class="panel-body">
       <!-- PLAN -->
       <section id="view-plan" class="view">
-        <div class="field">
-          <span class="field-dot dot-a"></span>
-          <select id="from-select" aria-label="From station"><option value="">Choose start…</option></select>
-        </div>
-        <button id="btn-swap" class="swap" title="Swap" aria-label="Swap origin and destination">
-          <svg viewBox="0 0 24 24" width="16" height="16"><path d="M7 4v16M7 4L4 7M7 4l3 3M17 20V4M17 20l3-3M17 20l-3-3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <button id="plan-toggle" class="disclosure" aria-expanded="true">
+          <span id="plan-summary">Plan a trip</span>
+          <svg class="chev" viewBox="0 0 24 24" width="18" height="18"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
-        <div class="field">
-          <span class="field-dot dot-b"></span>
-          <select id="to-select" aria-label="To station"><option value="">Choose destination…</option></select>
+        <div id="plan-form">
+          <div class="field">
+            <span class="field-dot dot-a"></span>
+            <select id="from-select" aria-label="From station"><option value="">Choose start…</option></select>
+          </div>
+          <button id="btn-swap" class="swap" title="Swap" aria-label="Swap origin and destination">
+            <svg viewBox="0 0 24 24" width="16" height="16"><path d="M7 4v16M7 4L4 7M7 4l3 3M17 20V4M17 20l3-3M17 20l-3-3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <div class="field">
+            <span class="field-dot dot-b"></span>
+            <select id="to-select" aria-label="To station"><option value="">Choose destination…</option></select>
+          </div>
+          <div class="plan-actions">
+            <button id="btn-route" class="btn-primary">Get directions</button>
+            <button id="btn-clear-route" class="btn-ghost">Clear</button>
+          </div>
+          <p class="hint-text">Tip: tap any station on the map to set it as your start or destination.</p>
         </div>
-        <div class="plan-actions">
-          <button id="btn-route" class="btn-primary">Get directions</button>
-          <button id="btn-clear-route" class="btn-ghost">Clear</button>
-        </div>
-        <p class="hint-text">Tip: tap any station on the map to set it as your start or destination.</p>
         <div id="itinerary"></div>
       </section>
 

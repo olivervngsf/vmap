@@ -1,0 +1,10 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "cleanUrls": true,
+  "headers": [
+    {
+      "source": "/api/bart",
+      "headers": [{ "key": "Cache-Control", "value": "s-maxage=20, stale-while-revalidate=40" }]
+    }
+  ]
+}

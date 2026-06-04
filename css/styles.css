@@ -105,6 +105,44 @@ html, body {
   color: var(--text-dim);
 }
 .legend-foot b { color: var(--text); }
+.live-dot { display: flex; align-items: center; gap: 6px; }
+.live-dot::before {
+  content: ""; width: 7px; height: 7px; border-radius: 50%;
+  background: #f2a900; box-shadow: 0 0 6px #f2a900;
+}
+.live-dot.ok::before { background: #5ad17a; box-shadow: 0 0 6px #5ad17a; animation: pulse 2s infinite; }
+.live-dot.off::before { background: #6b7686; box-shadow: none; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+/* Real-time departures */
+.dep {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 0; border-top: 1px solid var(--stroke);
+}
+.dep:first-of-type { border-top: none; }
+.dep-bullet { width: 12px; height: 12px; border-radius: 50%; flex: 0 0 auto; }
+.dep-main { flex: 1; min-width: 0; }
+.dep-dest { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dep-meta { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+.dep-meta .late { color: #ff7a7a; font-weight: 600; }
+.dep-min { font-size: 15px; font-weight: 800; font-variant-numeric: tabular-nums; min-width: 54px; text-align: right; }
+.dep-min.now { color: #5ad17a; }
+.dep-min small { font-size: 10px; font-weight: 600; color: var(--text-dim); }
+.dep-updated { font-size: 10px; color: var(--text-dim); margin-top: 10px; text-align: right; }
+.loading { font-size: 12px; color: var(--text-dim); padding: 8px 0; }
+.schematic-note {
+  font-size: 11px; color: var(--text-dim);
+  background: rgba(255,255,255,0.04);
+  border-radius: 8px; padding: 8px 10px; margin-top: 10px;
+  line-height: 1.45;
+}
+.attribution {
+  position: fixed; bottom: 18px; left: 18px;
+  font-size: 10px; color: var(--text-dim);
+  background: var(--panel); border: 1px solid var(--stroke);
+  padding: 5px 9px; border-radius: 8px; z-index: 4;
+}
+.attribution a { color: var(--text-dim); }
 
 /* ---------- Inspector (right) ---------- */
 #inspector {
@@ -269,6 +307,9 @@ html, body {
   font-size: 11px; color: #ffce54;
   margin-top: 4px;
 }
+.step-alight { color: var(--text-dim); }
+.step-alight b { color: var(--text); }
+.step-action .live { color: #5ad17a; font-weight: 700; }
 .no-route { font-size: 12px; color: var(--text-dim); padding: 8px 0; }
 .pick-hint { font-size: 11px; color: var(--text-dim); margin-top: 6px; }
 

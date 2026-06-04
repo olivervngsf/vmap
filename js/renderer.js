@@ -17,6 +17,7 @@ VMAP.Renderer = (function () {
     this.sim = sim;
     this.dpr = window.devicePixelRatio || 1;
     this.cam = { scale: 1, tx: 0, ty: 0 };
+    this._buildSegMap();
     this.resize();
   }
 
@@ -113,25 +114,58 @@ VMAP.Renderer = (function () {
     return !(view.hiddenLines && view.hiddenLines[lineId]);
   };
 
+  Renderer.prototype.SPACING = 4.2;   // world units between parallel rails
+
+  // Map each undirected segment -> ordered list of line ids sharing it, so we
+  // can fan shared trunks (downtown SF / Transbay tube carry 4 lines) and keep
+  // single-line segments perfectly centered on the station dots.
+  Renderer.prototype._buildSegMap = function () {
+    this._segMap = {};
+    this.net.lines.forEach(function (line) {
+      var st = line.stations;
+      for (var i = 0; i < st.length - 1; i++) {
+        var key = st[i] < st[i + 1] ? st[i] + "|" + st[i + 1] : st[i + 1] + "|" + st[i];
+        (this._segMap[key] = this._segMap[key] || []).push(line.id);
+      }
+    }, this);
+  };
+
+  // Perpendicular offset for one line on the segment between station ids a,b.
+  Renderer.prototype._segOffset = function (lineId, aId, bId) {
+    var key = aId < bId ? aId + "|" + bId : bId + "|" + aId;
+    var arr = this._segMap[key] || [lineId];
+    var idx = arr.indexOf(lineId);
+    return {
+      o: (idx - (arr.length - 1) / 2) * this.SPACING,
+      canonicalAB: aId < bId          // both lines reference the same side
+    };
+  };
+
   Renderer.prototype._drawRoutes = function (view) {
     var ctx = this.ctx, self = this;
     ctx.lineCap = "round"; ctx.lineJoin = "round";
-    this.net.lines.forEach(function (line) {
-      if (!self._lineVisible(line.id, view)) return;
-      var g = self.sim.geos[line.id];
-      var dim = view.focusLine && view.focusLine !== line.id;
-
-      // casing
-      ctx.strokeStyle = "rgba(0,0,0,0.35)";
-      ctx.lineWidth = 11;
-      self._pathLine(g);
-      ctx.stroke();
-
-      // colored route
-      ctx.strokeStyle = dim ? self._fade(line.color, 0.22) : line.color;
-      ctx.lineWidth = 6.5;
-      self._pathLine(g);
-      ctx.stroke();
+    // dark casing pass for all visible lines, then colored pass on top
+    [true, false].forEach(function (casing) {
+      self.net.lines.forEach(function (line) {
+        if (!self._lineVisible(line.id, view)) return;
+        var g = self.sim.geos[line.id];
+        var dim = view.focusLine && view.focusLine !== line.id;
+        ctx.strokeStyle = casing ? "rgba(6,11,20,0.85)"
+                                 : (dim ? self._fade(line.color, 0.16) : line.color);
+        ctx.lineWidth = casing ? 6.0 : 3.4;
+        ctx.beginPath();
+        var pts = g.points;
+        for (var i = 0; i < pts.length - 1; i++) {
+          var a = pts[i], b = pts[i + 1];
+          var off = self._segOffset(line.id, a.id, b.id);
+          var ca = off.canonicalAB ? a : b, cb = off.canonicalAB ? b : a;
+          var dx = cb.x - ca.x, dy = cb.y - ca.y, len = Math.hypot(dx, dy) || 1;
+          var nx = -dy / len * off.o, ny = dx / len * off.o;
+          ctx.moveTo(a.x + nx, a.y + ny);
+          ctx.lineTo(b.x + nx, b.y + ny);
+        }
+        ctx.stroke();
+      });
     });
   };
 
@@ -193,13 +227,30 @@ VMAP.Renderer = (function () {
     });
   };
 
+  // World pose of a vehicle, shifted onto its line's per-segment offset rail.
+  Renderer.prototype.vehicleWorldPose = function (v) {
+    var pose = this.sim.vehiclePose(v);
+    var g = this.sim.geos[v.lineId], sd = g.stationDist, pts = g.points;
+    var i = 0;
+    while (i < sd.length - 2 && sd[i + 1] < v.dist) i++;
+    var a = pts[i], b = pts[i + 1];
+    var off = this._segOffset(v.lineId, a.id, b.id);
+    var ca = off.canonicalAB ? a : b, cb = off.canonicalAB ? b : a;
+    var dx = cb.x - ca.x, dy = cb.y - ca.y, len = Math.hypot(dx, dy) || 1;
+    return {
+      x: pose.x + (-dy / len) * off.o,
+      y: pose.y + (dx / len) * off.o,
+      angle: pose.angle
+    };
+  };
+
   Renderer.prototype._drawVehicles = function (view) {
     var ctx = this.ctx, self = this;
-    var minPx = 7;   // keep visible when zoomed out
+    var minPx = 6;   // keep visible when zoomed out
     this.sim.vehicles.forEach(function (v) {
       if (!self._lineVisible(v.lineId, view)) return;
       if (view.focusLine && view.focusLine !== v.lineId) return;
-      var pose = self.sim.vehiclePose(v);
+      var pose = self.vehicleWorldPose(v);
       var selected = view.selected && view.selected.type === "vehicle" && view.selected.id === v.id;
 
       var halfLen = Math.max(11, minPx / self.cam.scale);
@@ -232,7 +283,8 @@ VMAP.Renderer = (function () {
 
   Renderer.prototype._drawLabels = function (view) {
     var ctx = this.ctx, self = this;
-    var showAll = this.cam.scale > 1.15;
+    var showAll = this.cam.scale > 1.45;
+    var showInterchange = this.cam.scale > 0.66;
     ctx.font = "600 12px Segoe UI, system-ui, sans-serif";
     ctx.textBaseline = "middle";
 
@@ -241,7 +293,7 @@ VMAP.Renderer = (function () {
       if (!anyVisible) return;
       var selected = view.selected && view.selected.type === "station" && view.selected.id === s.id;
       var onRoute = view.routeSet && view.routeSet[s.id];
-      if (!(s.interchange || showAll || selected || onRoute)) return;
+      if (!((s.interchange && showInterchange) || showAll || selected || onRoute)) return;
 
       var tw = ctx.measureText(s.name).width;
       var ox = s.x + 12, oy = s.y - 12;
@@ -291,7 +343,7 @@ VMAP.Renderer = (function () {
     this.sim.vehicles.forEach(function (v) {
       if (!self._lineVisible(v.lineId, view)) return;
       if (view.focusLine && view.focusLine !== v.lineId) return;
-      var sp = self.worldToScreen(self.sim.vehiclePose(v));
+      var sp = self.worldToScreen(self.vehicleWorldPose(v));
       var d = Math.hypot(sp.x - sx, sp.y - sy);
       if (d < bestD) { bestD = d; best = { type: "vehicle", id: v.id }; }
     });

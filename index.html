@@ -2,15 +2,34 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <title>BART Live Map — real-time Bay Area transit</title>
   <link rel="stylesheet" href="css/styles.css" />
 </head>
 <body>
   <canvas id="map"></canvas>
 
+  <!-- Mobile-only top bar (hidden on desktop via CSS) -->
+  <div id="mobilebar">
+    <div class="mb-title">
+      <span class="brand-mark">◉</span>
+      <div>
+        <strong>BART Live</strong>
+        <span id="live-status-m" class="live-dot">connecting…</span>
+      </div>
+    </div>
+    <div class="mb-actions">
+      <button id="mb-plan" class="mb-btn">🚆 Plan</button>
+      <button id="mb-lines" class="mb-btn">≡ Lines</button>
+    </div>
+  </div>
+
+  <!-- Dim backdrop behind an open bottom sheet (mobile) -->
+  <div id="scrim"></div>
+
   <!-- Top-left: brand + line legend -->
   <aside id="legend" class="panel">
+    <div class="sheet-handle"></div>
     <header class="brand">
       <span class="brand-mark">◉</span>
       <div>
@@ -28,6 +47,7 @@
 
   <!-- Trip planner: choose origin + destination, get step-by-step directions -->
   <aside id="planner" class="panel">
+    <div class="sheet-handle"></div>
     <div class="planner-h">
       <h2>Plan a trip</h2>
       <button id="btn-swap" title="Swap origin / destination">⇅</button>
@@ -50,6 +70,7 @@
 
   <!-- Right: contextual info (live departures / train details) -->
   <aside id="inspector" class="panel hidden">
+    <div class="sheet-handle"></div>
     <button id="inspector-close" aria-label="Close">×</button>
     <div id="inspector-body"></div>
   </aside>
@@ -70,6 +91,13 @@
     <button id="btn-zoom-out" class="ctrl" title="Zoom out (−)">−</button>
     <button id="btn-zoom-in" class="ctrl" title="Zoom in (+)">+</button>
     <button id="btn-reset" class="ctrl wide" title="Reset view (R)">Reset view</button>
+  </div>
+
+  <!-- Mobile-only floating map controls (hidden on desktop via CSS) -->
+  <div id="mobilectrls">
+    <button id="mc-zoom-in" class="ctrl" aria-label="Zoom in">+</button>
+    <button id="mc-zoom-out" class="ctrl" aria-label="Zoom out">−</button>
+    <button id="mc-reset" class="ctrl" aria-label="Recenter">⌖</button>
   </div>
 
   <div id="hint">Drag to pan · scroll to zoom · click a station for <b>live departures</b></div>

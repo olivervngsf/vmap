@@ -355,9 +355,95 @@ html, body {
   z-index: 4;
 }
 
-@media (max-width: 760px) {
-  #planner { left: 16px; top: auto; bottom: 78px; width: calc(100vw - 32px); max-height: 46vh; overflow-y: auto; }
-  #legend { width: 200px; }
-  #inspector { width: calc(100vw - 32px); }
+/* Mobile-only chrome is hidden on desktop */
+#mobilebar, #scrim, #mobilectrls, .sheet-handle { display: none; }
+
+/* ============================================================
+   MOBILE  (bottom-sheet UI, pinch-zoom handled in JS)
+   ============================================================ */
+@media (max-width: 768px) {
+  /* hide desktop chrome */
+  #controls, #hint, .attribution { display: none; }
+
+  /* top bar */
+  #mobilebar {
+    display: flex; align-items: center; justify-content: space-between;
+    position: fixed; top: 0; left: 0; right: 0; z-index: 24;
+    padding: calc(env(safe-area-inset-top) + 8px) 12px 8px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--stroke);
+    backdrop-filter: blur(14px) saturate(140%);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+  }
+  .mb-title { display: flex; align-items: center; gap: 9px; }
+  .mb-title .brand-mark { font-size: 20px; color: var(--accent); }
+  .mb-title strong { font-size: 15px; display: block; line-height: 1.1; }
+  .mb-title .live-dot { font-size: 10px; }
+  .mb-actions { display: flex; gap: 8px; }
+  .mb-btn {
+    background: rgba(255,255,255,0.08); border: 1px solid var(--stroke);
+    color: var(--text); border-radius: 11px;
+    padding: 10px 13px; font-size: 13px; font-weight: 600; cursor: pointer;
+  }
+  .mb-btn.active { background: rgba(79,140,255,0.22); border-color: var(--accent); }
+
+  /* floating map controls */
+  #mobilectrls {
+    display: flex; flex-direction: column; gap: 9px;
+    position: fixed; right: 12px; z-index: 23;
+    bottom: calc(env(safe-area-inset-bottom) + 18px);
+  }
+  #mobilectrls .ctrl {
+    width: 48px; height: 48px; font-size: 21px; border-radius: 14px;
+    background: var(--panel); box-shadow: var(--shadow);
+    backdrop-filter: blur(10px);
+  }
+
+  /* the three panels become bottom sheets */
+  #legend, #planner, #inspector {
+    position: fixed; left: 0; right: 0; bottom: 0; top: auto;
+    width: auto; max-width: none; margin: 0;
+    max-height: 80vh; overflow-y: auto; -webkit-overflow-scrolling: touch;
+    border-radius: 20px 20px 0 0;
+    border-bottom: none;
+    padding: 6px 18px calc(env(safe-area-inset-bottom) + 20px);
+    transform: translateY(112%);
+    transition: transform 0.3s cubic-bezier(.4, 0, .2, 1);
+    z-index: 30;
+  }
+  body.sheet-lines #legend,
+  body.sheet-plan  #planner,
+  body.sheet-info  #inspector { transform: translateY(0); }
+
+  /* keep an open sheet visible even if its base class would hide it */
+  #inspector.hidden { display: block; }
+  body:not(.sheet-info) #inspector { transform: translateY(112%); }
+
+  .sheet-handle {
+    display: block; width: 42px; height: 5px; border-radius: 3px;
+    background: var(--text-dim); opacity: 0.45; margin: 4px auto 12px;
+  }
+
+  /* backdrop */
+  #scrim {
+    display: block; position: fixed; inset: 0; z-index: 25;
+    background: rgba(0,0,0,0.5);
+    opacity: 0; pointer-events: none; transition: opacity 0.28s;
+  }
+  body.sheet-lines #scrim, body.sheet-plan #scrim, body.sheet-info #scrim {
+    opacity: 1; pointer-events: auto;
+  }
+  /* hide floating controls while a sheet is up */
+  body.sheet-lines #mobilectrls, body.sheet-plan #mobilectrls, body.sheet-info #mobilectrls { display: none; }
+
+  /* bigger touch targets inside sheets */
+  .field select { padding: 12px 11px; font-size: 15px; }
+  .planner-btns button { padding: 12px; font-size: 14px; }
+  .mini-btn { padding: 12px; font-size: 13px; }
+  .line-item { padding: 11px 8px; }
+  #inspector-close { top: 14px; right: 16px; font-size: 28px; padding: 4px; }
+  .insp-title { font-size: 21px; }
+
+  /* give the map breathing room under the top bar on first paint */
   #hint { display: none; }
 }

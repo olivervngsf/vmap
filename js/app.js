@@ -203,13 +203,14 @@
   var inspBody = document.getElementById("inspector-body");
 
   function openInspector() {
-    if (!view.selected) { inspector.classList.add("hidden"); return; }
+    if (!view.selected) { inspector.classList.add("hidden"); openSheet(null); return; }
     inspector.classList.remove("hidden");
     if (view.selected.type === "station") loadDepartures(view.selected.id, true);
     renderInspector();
+    openSheet("info");      // surface as a bottom sheet on mobile
   }
   document.getElementById("inspector-close").addEventListener("click", function () {
-    view.selected = null; inspector.classList.add("hidden");
+    view.selected = null; inspector.classList.add("hidden"); openSheet(null);
   });
 
   function renderInspector() {
@@ -282,7 +283,10 @@
         view.endpoints[which] = id;
         if (which === "from" && view.endpoints.to === id) view.endpoints.to = null;
         if (which === "to" && view.endpoints.from === id) view.endpoints.from = null;
-        syncSelects(); planTrip(); renderStationInspector(id);
+        syncSelects(); planTrip();
+        // on mobile, jump to the Plan sheet once both ends are chosen
+        if (view.endpoints.from && view.endpoints.to) { view.selected = null; openSheet("plan"); }
+        else renderStationInspector(id);
       });
     });
   }
@@ -318,11 +322,15 @@
   /* ---------- live status ---------- */
   function setLiveStatus(ok) {
     state.liveEnabled = ok;
-    var el = document.getElementById("live-status");
-    el.classList.toggle("ok", ok);
-    el.classList.toggle("off", !ok);
-    el.textContent = ok ? "live: BART API" : "live: offline";
-    el.title = ok ? "Real-time departures are live" : "Deploy to Vercel to enable real-time data";
+    [["live-status", "live: BART API", "live: offline"],
+     ["live-status-m", "live", "offline"]].forEach(function (cfg) {
+      var el = document.getElementById(cfg[0]);
+      if (!el) return;
+      el.classList.toggle("ok", ok);
+      el.classList.toggle("off", !ok);
+      el.textContent = ok ? cfg[1] : cfg[2];
+      el.title = ok ? "Real-time departures are live" : "Deploy to enable real-time data";
+    });
   }
   function probeLive() {
     VMAP.live.departures("POWL")
@@ -330,24 +338,55 @@
       .catch(function () { setLiveStatus(false); });
   }
 
-  /* ---------- pointer input ---------- */
-  var drag = null;
+  /* ---------- pointer input (mouse drag + touch pan/pinch) ---------- */
+  var pointers = new Map();   // pointerId -> {x,y}
+  var drag = null;            // single-pointer pan/tap tracker
+  var pinchPrev = null;       // {dist, cx, cy} for two-finger gesture
+
+  function pinchState() {
+    var it = pointers.values(), a = it.next().value, b = it.next().value;
+    var dx = a.x - b.x, dy = a.y - b.y;
+    return { dist: Math.hypot(dx, dy), cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2 };
+  }
   canvas.addEventListener("pointerdown", function (e) {
-    drag = { x: e.clientX, y: e.clientY, moved: 0 };
-    canvas.setPointerCapture(e.pointerId); canvas.classList.add("dragging");
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
+    if (pointers.size === 1) drag = { x: e.clientX, y: e.clientY, moved: 0 };
+    else if (pointers.size === 2) { drag = null; pinchPrev = pinchState(); }
+    canvas.classList.add("dragging");
   });
   canvas.addEventListener("pointermove", function (e) {
-    if (!drag) return;
-    var dx = e.clientX - drag.x, dy = e.clientY - drag.y;
-    drag.moved += Math.abs(dx) + Math.abs(dy);
-    renderer.panBy(dx, dy); drag.x = e.clientX; drag.y = e.clientY;
+    if (!pointers.has(e.pointerId)) return;
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    var rect = canvas.getBoundingClientRect();
+    if (pointers.size >= 2) {
+      var ps = pinchState();
+      if (pinchPrev) {
+        renderer.panBy(ps.cx - pinchPrev.cx, ps.cy - pinchPrev.cy);   // two-finger pan
+        renderer.zoomAt(ps.cx - rect.left, ps.cy - rect.top, ps.dist / (pinchPrev.dist || ps.dist));
+      }
+      pinchPrev = ps;
+    } else if (drag) {
+      var dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+      drag.moved += Math.abs(dx) + Math.abs(dy);
+      renderer.panBy(dx, dy); drag.x = e.clientX; drag.y = e.clientY;
+    }
   });
-  canvas.addEventListener("pointerup", function (e) {
-    canvas.classList.remove("dragging");
-    if (drag && drag.moved < 6) handleClick(e);
-    drag = null;
-  });
-  canvas.addEventListener("pointercancel", function () { drag = null; canvas.classList.remove("dragging"); });
+  function endPointer(e) {
+    var wasTap = drag && drag.moved < 6 && pointers.size === 1;
+    pointers.delete(e.pointerId);
+    if (pointers.size < 2) pinchPrev = null;
+    if (pointers.size === 0) {
+      canvas.classList.remove("dragging");
+      if (wasTap) handleClick(e);
+      drag = null;
+    } else if (pointers.size === 1) {
+      var it = pointers.values().next().value;   // resume panning with remaining finger
+      drag = { x: it.x, y: it.y, moved: 999 };
+    }
+  }
+  canvas.addEventListener("pointerup", endPointer);
+  canvas.addEventListener("pointercancel", endPointer);
   canvas.addEventListener("wheel", function (e) {
     e.preventDefault();
     var rect = canvas.getBoundingClientRect();
@@ -358,8 +397,44 @@
     var rect = canvas.getBoundingClientRect();
     var hit = renderer.pick(e.clientX - rect.left, e.clientY - rect.top, view);
     if (hit) { view.selected = hit; openInspector(); }
-    else { view.selected = null; inspector.classList.add("hidden"); }
+    else { view.selected = null; inspector.classList.add("hidden"); openSheet(null); }
   }
+
+  /* ---------- mobile bottom sheets ---------- */
+  // Exactly one of: 'plan' | 'lines' | 'info' | null. Drives body classes the
+  // mobile CSS keys off; harmless (and invisible) on desktop.
+  function openSheet(name) {
+    var b = document.body.classList;
+    b.remove("sheet-plan", "sheet-lines", "sheet-info");
+    if (name) b.add("sheet-" + name);
+    document.getElementById("mb-plan").classList.toggle("active", name === "plan");
+    document.getElementById("mb-lines").classList.toggle("active", name === "lines");
+  }
+  function toggleSheet(name) {
+    var open = document.body.classList.contains("sheet-" + name);
+    if (name === "info" || open) {            // closing info also clears selection
+      if (open && name === "info") { view.selected = null; inspector.classList.add("hidden"); }
+      openSheet(open ? null : name);
+    } else { openSheet(name); }
+  }
+  document.getElementById("mb-plan").addEventListener("click", function () { toggleSheet("plan"); });
+  document.getElementById("mb-lines").addEventListener("click", function () { toggleSheet("lines"); });
+  function closeSheets() {
+    if (document.body.classList.contains("sheet-info")) { view.selected = null; inspector.classList.add("hidden"); }
+    openSheet(null);
+  }
+  // Use pointerdown (not click): a touch tap that opens a sheet is followed by
+  // a synthesized mouse "click" at the same point, which would otherwise hit
+  // the freshly-shown scrim and close the sheet instantly. Pointer events avoid
+  // that compatibility click.
+  document.getElementById("scrim").addEventListener("pointerdown", function (e) { e.preventDefault(); closeSheets(); });
+  // tapping a sheet's grab handle dismisses it (the expected mobile gesture)
+  Array.prototype.forEach.call(document.querySelectorAll(".sheet-handle"), function (h) {
+    h.addEventListener("pointerdown", function (e) { e.preventDefault(); closeSheets(); });
+  });
+  document.getElementById("mc-zoom-in").addEventListener("click", function () { renderer.zoomAt(renderer.w / 2, renderer.h / 2, 1.25); });
+  document.getElementById("mc-zoom-out").addEventListener("click", function () { renderer.zoomAt(renderer.w / 2, renderer.h / 2, 0.8); });
+  document.getElementById("mc-reset").addEventListener("click", function () { renderer.fit(); });
 
   /* ---------- controls ---------- */
   var playBtn = document.getElementById("btn-play");

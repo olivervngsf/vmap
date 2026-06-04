@@ -3,104 +3,89 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-  <title>BART Live Map — real-time Bay Area transit</title>
+  <title>BART Live — real-time Bay Area transit</title>
   <link rel="stylesheet" href="css/styles.css" />
 </head>
 <body>
   <canvas id="map"></canvas>
 
-  <!-- Mobile-only top bar (hidden on desktop via CSS) -->
-  <div id="mobilebar">
-    <div class="mb-title">
-      <span class="brand-mark">◉</span>
-      <div>
-        <strong>BART Live</strong>
-        <span id="live-status-m" class="live-dot">connecting…</span>
-      </div>
-    </div>
-    <div class="mb-actions">
-      <button id="mb-plan" class="mb-btn">🚆 Plan</button>
-      <button id="mb-lines" class="mb-btn">≡ Lines</button>
-    </div>
+  <!-- Compact floating map controls -->
+  <div id="mapctrls">
+    <button id="mc-zoom-in" class="mc" aria-label="Zoom in">+</button>
+    <button id="mc-zoom-out" class="mc" aria-label="Zoom out">−</button>
+    <button id="mc-reset" class="mc" aria-label="Recenter">⌖</button>
   </div>
 
-  <!-- Dim backdrop behind an open bottom sheet (mobile) -->
-  <div id="scrim"></div>
+  <!-- Shown when the desktop panel is collapsed -->
+  <button id="panel-reopen" class="hidden" aria-label="Show panel">
+    <span class="brand-mark">◉</span> BART Live
+  </button>
 
-  <!-- Top-left: brand + line legend -->
-  <aside id="legend" class="panel">
-    <div class="sheet-handle"></div>
-    <header class="brand">
-      <span class="brand-mark">◉</span>
-      <div>
-        <h1>BART Live Map</h1>
-        <p class="subtitle">Bay Area Rapid Transit · real-time</p>
+  <!-- ONE unified panel: sidebar on desktop, bottom sheet on mobile -->
+  <aside id="panel">
+    <button id="grip" aria-label="Expand or collapse"></button>
+
+    <header class="panel-head">
+      <div class="brand">
+        <span class="brand-mark">◉</span>
+        <div class="brand-text">
+          <strong>BART Live</strong>
+          <span id="live-status" class="live-pill">connecting…</span>
+        </div>
       </div>
+      <button id="panel-collapse" class="icon-btn" aria-label="Collapse panel" title="Collapse">
+        <svg viewBox="0 0 24 24" width="20" height="20"><path d="M15 6l-6 6 6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
     </header>
-    <div class="legend-hint">Lines — click to focus, toggle the dot to hide</div>
-    <ul id="line-list"></ul>
-    <div class="legend-foot">
-      <span><b id="stat-stations">0</b> stations</span>
-      <span id="live-status" class="live-dot">live: connecting…</span>
+
+    <!-- segmented control (Plan / Lines) -->
+    <div id="seg" class="segmented">
+      <button data-tab="plan" class="seg-btn active">Plan a trip</button>
+      <button data-tab="lines" class="seg-btn">Lines</button>
+    </div>
+
+    <div class="panel-body">
+      <!-- PLAN -->
+      <section id="view-plan" class="view">
+        <div class="field">
+          <span class="field-dot dot-a"></span>
+          <select id="from-select" aria-label="From station"><option value="">Choose start…</option></select>
+        </div>
+        <button id="btn-swap" class="swap" title="Swap" aria-label="Swap origin and destination">
+          <svg viewBox="0 0 24 24" width="16" height="16"><path d="M7 4v16M7 4L4 7M7 4l3 3M17 20V4M17 20l3-3M17 20l-3-3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <div class="field">
+          <span class="field-dot dot-b"></span>
+          <select id="to-select" aria-label="To station"><option value="">Choose destination…</option></select>
+        </div>
+        <div class="plan-actions">
+          <button id="btn-route" class="btn-primary">Get directions</button>
+          <button id="btn-clear-route" class="btn-ghost">Clear</button>
+        </div>
+        <p class="hint-text">Tip: tap any station on the map to set it as your start or destination.</p>
+        <div id="itinerary"></div>
+      </section>
+
+      <!-- LINES -->
+      <section id="view-lines" class="view" hidden>
+        <p class="hint-text">Tap a line to focus it · tap its dot to hide it.</p>
+        <ul id="line-list"></ul>
+        <div class="panel-foot">
+          <span><b id="stat-stations">0</b> stations · 6 lines</span>
+          <a href="https://api.bart.gov" target="_blank" rel="noopener">Live data: BART API</a>
+        </div>
+      </section>
+
+      <!-- DETAIL (station departures / train info) -->
+      <section id="view-detail" class="view" hidden>
+        <button id="detail-back" class="back-btn">
+          <svg viewBox="0 0 24 24" width="18" height="18"><path d="M15 6l-6 6 6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Back
+        </button>
+        <div id="detail-body"></div>
+      </section>
     </div>
   </aside>
-
-  <!-- Trip planner: choose origin + destination, get step-by-step directions -->
-  <aside id="planner" class="panel">
-    <div class="sheet-handle"></div>
-    <div class="planner-h">
-      <h2>Plan a trip</h2>
-      <button id="btn-swap" title="Swap origin / destination">⇅</button>
-    </div>
-    <div class="field">
-      <label><span class="dot-a"></span> From</label>
-      <select id="from-select"><option value="">Choose start station…</option></select>
-    </div>
-    <div class="field">
-      <label><span class="dot-b"></span> To</label>
-      <select id="to-select"><option value="">Choose destination…</option></select>
-    </div>
-    <div class="planner-btns">
-      <button id="btn-route">Get directions</button>
-      <button id="btn-clear-route">Clear</button>
-    </div>
-    <p class="pick-hint">Tip: click any station on the map, then use “Set as start / destination”.</p>
-    <div id="itinerary"></div>
-  </aside>
-
-  <!-- Right: contextual info (live departures / train details) -->
-  <aside id="inspector" class="panel hidden">
-    <div class="sheet-handle"></div>
-    <button id="inspector-close" aria-label="Close">×</button>
-    <div id="inspector-body"></div>
-  </aside>
-
-  <!-- Bottom: map + animation controls -->
-  <div id="controls" class="panel">
-    <button id="btn-play" class="ctrl" title="Play / pause train animation (space)">⏸</button>
-    <div class="clock">
-      <span id="clock">--:--:--</span>
-      <small>your local time</small>
-    </div>
-    <label class="speed">
-      Train anim
-      <input id="speed" type="range" min="1" max="20" step="1" value="5" />
-      <span id="speed-val">5×</span>
-    </label>
-    <div class="spacer"></div>
-    <button id="btn-zoom-out" class="ctrl" title="Zoom out (−)">−</button>
-    <button id="btn-zoom-in" class="ctrl" title="Zoom in (+)">+</button>
-    <button id="btn-reset" class="ctrl wide" title="Reset view (R)">Reset view</button>
-  </div>
-
-  <!-- Mobile-only floating map controls (hidden on desktop via CSS) -->
-  <div id="mobilectrls">
-    <button id="mc-zoom-in" class="ctrl" aria-label="Zoom in">+</button>
-    <button id="mc-zoom-out" class="ctrl" aria-label="Zoom out">−</button>
-    <button id="mc-reset" class="ctrl" aria-label="Recenter">⌖</button>
-  </div>
-
-  <div id="hint">Drag to pan · scroll to zoom · click a station for <b>live departures</b></div>
 
   <script src="js/bart-data.js"></script>
   <script src="js/network.js"></script>

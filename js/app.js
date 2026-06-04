@@ -28,8 +28,6 @@
   /* ---------- helpers ---------- */
   function stationName(id) { return net.stationsById[id].name; }
   function lineShort(line) { return line.colorKey.charAt(0).toUpperCase() + line.colorKey.slice(1) + " Line"; }
-  function pad(n) { return (n < 10 ? "0" : "") + n; }
-  function localClock() { var d = new Date(); return pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":" + pad(d.getSeconds()); }
 
   // index of a station within a line's ordered stop list
   function idxOnLine(line, sid) { return line.stations.indexOf(sid); }
@@ -198,22 +196,37 @@
     return '<div class="step">' + rail + body + "</div>";
   }
 
-  /* ---------- inspector ---------- */
-  var inspector = document.getElementById("inspector");
-  var inspBody = document.getElementById("inspector-body");
+  /* ---------- panel views (Plan / Lines / Detail) ---------- */
+  var body = document.body;
+  var panel = document.getElementById("panel");
+  var detailBody = document.getElementById("detail-body");
+  var lastTab = "plan";
+  function isMobile() { return window.matchMedia("(max-width: 880px)").matches; }
+  function expandSheet() { if (isMobile()) body.classList.add("sheet-expanded"); }
+  function peekSheet() { body.classList.remove("sheet-expanded"); }
 
-  function openInspector() {
-    if (!view.selected) { inspector.classList.add("hidden"); openSheet(null); return; }
-    inspector.classList.remove("hidden");
-    if (view.selected.type === "station") loadDepartures(view.selected.id, true);
-    renderInspector();
-    openSheet("info");      // surface as a bottom sheet on mobile
+  function showView(name) {
+    ["plan", "lines", "detail"].forEach(function (v) {
+      document.getElementById("view-" + v).hidden = (v !== name);
+    });
+    document.getElementById("seg").style.display = (name === "detail") ? "none" : "flex";
+    if (name !== "detail") {
+      lastTab = name;
+      document.querySelectorAll(".seg-btn").forEach(function (b) {
+        b.classList.toggle("active", b.dataset.tab === name);
+      });
+    }
+    panel.scrollTop = 0;
   }
-  document.getElementById("inspector-close").addEventListener("click", function () {
-    view.selected = null; inspector.classList.add("hidden"); openSheet(null);
-  });
 
-  function renderInspector() {
+  function openDetail() {
+    if (!view.selected) { showView(lastTab); return; }
+    if (view.selected.type === "station") loadDepartures(view.selected.id, true);
+    renderDetail();
+    showView("detail");
+    expandSheet();
+  }
+  function renderDetail() {
     if (!view.selected) return;
     if (view.selected.type === "station") renderStationInspector(view.selected.id);
     else renderVehicleInspector(view.selected.id);
@@ -267,7 +280,7 @@
         (c.time ? '<div class="dep-updated">BART time: ' + c.time + "</div>" : "");
     }
 
-    inspBody.innerHTML =
+    detailBody.innerHTML =
       '<span class="insp-tag">' + (s.interchange ? "Interchange" : "Station") + "</span>" +
       '<h2 class="insp-title">' + s.name + "</h2>" +
       '<p class="insp-sub">' + s.lines.length + " line" + (s.lines.length === 1 ? "" : "s") + " · " + id + "</p>" +
@@ -277,15 +290,15 @@
       '<button class="mini-btn' + toActive + '" data-set="to">Set as destination</button></div>' +
       '<div class="section-h">Live departures</div>' + depHTML;
 
-    inspBody.querySelectorAll("[data-set]").forEach(function (btn) {
+    detailBody.querySelectorAll("[data-set]").forEach(function (btn) {
       btn.addEventListener("click", function () {
         var which = btn.dataset.set;
         view.endpoints[which] = id;
         if (which === "from" && view.endpoints.to === id) view.endpoints.to = null;
         if (which === "to" && view.endpoints.from === id) view.endpoints.from = null;
         syncSelects(); planTrip();
-        // on mobile, jump to the Plan sheet once both ends are chosen
-        if (view.endpoints.from && view.endpoints.to) { view.selected = null; openSheet("plan"); }
+        // once both ends are chosen, jump to the Plan view to show directions
+        if (view.endpoints.from && view.endpoints.to) { view.selected = null; showView("plan"); expandSheet(); }
         else renderStationInspector(id);
       });
     });
@@ -306,9 +319,9 @@
   function renderVehicleInspector(vid) {
     var v = null;
     for (var i = 0; i < sim.vehicles.length; i++) if (sim.vehicles[i].id === vid) { v = sim.vehicles[i]; break; }
-    if (!v) { inspector.classList.add("hidden"); view.selected = null; return; }
+    if (!v) { view.selected = null; showView(lastTab); return; }
     var line = net.linesById[v.lineId];
-    inspBody.innerHTML =
+    detailBody.innerHTML =
       '<span class="insp-tag">Train · schematic</span>' +
       '<h2 class="insp-title">' + lineShort(line) + "</h2>" +
       '<p class="insp-sub">' + line.name + "</p>" +
@@ -322,15 +335,11 @@
   /* ---------- live status ---------- */
   function setLiveStatus(ok) {
     state.liveEnabled = ok;
-    [["live-status", "live: BART API", "live: offline"],
-     ["live-status-m", "live", "offline"]].forEach(function (cfg) {
-      var el = document.getElementById(cfg[0]);
-      if (!el) return;
-      el.classList.toggle("ok", ok);
-      el.classList.toggle("off", !ok);
-      el.textContent = ok ? cfg[1] : cfg[2];
-      el.title = ok ? "Real-time departures are live" : "Deploy to enable real-time data";
-    });
+    var el = document.getElementById("live-status");
+    el.classList.toggle("ok", ok);
+    el.classList.toggle("off", !ok);
+    el.textContent = ok ? "live" : "offline";
+    el.title = ok ? "Real-time BART departures" : "Deploy to enable real-time data";
   }
   function probeLive() {
     VMAP.live.departures("POWL")
@@ -396,65 +405,61 @@
   function handleClick(e) {
     var rect = canvas.getBoundingClientRect();
     var hit = renderer.pick(e.clientX - rect.left, e.clientY - rect.top, view);
-    if (hit) { view.selected = hit; openInspector(); }
-    else { view.selected = null; inspector.classList.add("hidden"); openSheet(null); }
+    if (hit) { view.selected = hit; openDetail(); }
+    else { view.selected = null; showView(lastTab); peekSheet(); }
   }
 
-  /* ---------- mobile bottom sheets ---------- */
-  // Exactly one of: 'plan' | 'lines' | 'info' | null. Drives body classes the
-  // mobile CSS keys off; harmless (and invisible) on desktop.
-  function openSheet(name) {
-    var b = document.body.classList;
-    b.remove("sheet-plan", "sheet-lines", "sheet-info");
-    if (name) b.add("sheet-" + name);
-    document.getElementById("mb-plan").classList.toggle("active", name === "plan");
-    document.getElementById("mb-lines").classList.toggle("active", name === "lines");
-  }
-  function toggleSheet(name) {
-    var open = document.body.classList.contains("sheet-" + name);
-    if (name === "info" || open) {            // closing info also clears selection
-      if (open && name === "info") { view.selected = null; inspector.classList.add("hidden"); }
-      openSheet(open ? null : name);
-    } else { openSheet(name); }
-  }
-  document.getElementById("mb-plan").addEventListener("click", function () { toggleSheet("plan"); });
-  document.getElementById("mb-lines").addEventListener("click", function () { toggleSheet("lines"); });
-  function closeSheets() {
-    if (document.body.classList.contains("sheet-info")) { view.selected = null; inspector.classList.add("hidden"); }
-    openSheet(null);
-  }
-  // Use pointerdown (not click): a touch tap that opens a sheet is followed by
-  // a synthesized mouse "click" at the same point, which would otherwise hit
-  // the freshly-shown scrim and close the sheet instantly. Pointer events avoid
-  // that compatibility click.
-  document.getElementById("scrim").addEventListener("pointerdown", function (e) { e.preventDefault(); closeSheets(); });
-  // tapping a sheet's grab handle dismisses it (the expected mobile gesture)
-  Array.prototype.forEach.call(document.querySelectorAll(".sheet-handle"), function (h) {
-    h.addEventListener("pointerdown", function (e) { e.preventDefault(); closeSheets(); });
+  /* ---------- panel chrome: tabs, collapse, mobile sheet ---------- */
+  document.querySelectorAll(".seg-btn").forEach(function (b) {
+    b.addEventListener("click", function () {
+      view.selected = null;
+      showView(b.dataset.tab);
+      expandSheet();
+    });
   });
+  document.getElementById("detail-back").addEventListener("click", function () {
+    view.selected = null; showView(lastTab);
+  });
+
+  // desktop collapse / reopen
+  var reopen = document.getElementById("panel-reopen");
+  document.getElementById("panel-collapse").addEventListener("click", function () {
+    panel.classList.add("collapsed"); reopen.classList.remove("hidden");
+  });
+  reopen.addEventListener("click", function () {
+    panel.classList.remove("collapsed"); reopen.classList.add("hidden");
+  });
+
+  // mobile sheet: drag (or tap) the grip to expand / collapse
+  var grip = document.getElementById("grip");
+  var gripY = null;
+  grip.addEventListener("pointerdown", function (e) {
+    gripY = e.clientY; try { grip.setPointerCapture(e.pointerId); } catch (_) {}
+  });
+  grip.addEventListener("pointerup", function (e) {
+    if (gripY == null) return;
+    var dy = e.clientY - gripY; gripY = null;
+    if (dy < -24) body.classList.add("sheet-expanded");
+    else if (dy > 24) body.classList.remove("sheet-expanded");
+    else body.classList.toggle("sheet-expanded");
+  });
+
+  // floating map controls
   document.getElementById("mc-zoom-in").addEventListener("click", function () { renderer.zoomAt(renderer.w / 2, renderer.h / 2, 1.25); });
   document.getElementById("mc-zoom-out").addEventListener("click", function () { renderer.zoomAt(renderer.w / 2, renderer.h / 2, 0.8); });
   document.getElementById("mc-reset").addEventListener("click", function () { renderer.fit(); });
 
-  /* ---------- controls ---------- */
-  var playBtn = document.getElementById("btn-play");
-  playBtn.addEventListener("click", togglePlay);
-  function togglePlay() { state.paused = !state.paused; playBtn.textContent = state.paused ? "▶" : "⏸"; }
-  var speed = document.getElementById("speed"), speedVal = document.getElementById("speed-val");
-  speed.addEventListener("input", function () { state.speed = parseInt(speed.value, 10); speedVal.textContent = state.speed + "×"; });
-  document.getElementById("btn-zoom-in").addEventListener("click", function () { renderer.zoomAt(renderer.w / 2, renderer.h / 2, 1.2); });
-  document.getElementById("btn-zoom-out").addEventListener("click", function () { renderer.zoomAt(renderer.w / 2, renderer.h / 2, 0.83); });
-  document.getElementById("btn-reset").addEventListener("click", function () { renderer.fit(); });
+  // planner buttons
   document.getElementById("btn-route").addEventListener("click", planTrip);
   document.getElementById("btn-clear-route").addEventListener("click", clearTrip);
   document.getElementById("btn-swap").addEventListener("click", function () {
     var f = view.endpoints.from; view.endpoints.from = view.endpoints.to; view.endpoints.to = f;
     syncSelects(); planTrip();
   });
+
   document.addEventListener("keydown", function (e) {
     if (e.target.tagName === "SELECT" || e.target.tagName === "INPUT") return;
     switch (e.key) {
-      case " ": e.preventDefault(); togglePlay(); break;
       case "+": case "=": renderer.zoomAt(renderer.w / 2, renderer.h / 2, 1.2); break;
       case "-": renderer.zoomAt(renderer.w / 2, renderer.h / 2, 0.83); break;
       case "r": case "R": renderer.fit(); break;
@@ -462,15 +467,10 @@
       case "ArrowRight": renderer.panBy(-60, 0); break;
       case "ArrowUp": renderer.panBy(0, 60); break;
       case "ArrowDown": renderer.panBy(0, -60); break;
+      case "Escape": view.selected = null; showView(lastTab); break;
     }
   });
   window.addEventListener("resize", function () { renderer.resize(); });
-
-  /* ---------- attribution ---------- */
-  var attr = document.createElement("div");
-  attr.className = "attribution";
-  attr.innerHTML = 'Real-time data: <a href="https://api.bart.gov" target="_blank" rel="noopener">BART API</a> · map is schematic';
-  document.body.appendChild(attr);
 
   document.getElementById("stat-stations").textContent = net.stations.length;
 
@@ -479,13 +479,12 @@
   var uiAccum = 0;
   function frame(now) {
     var dt = (now - last) / 1000; last = now;
-    if (!state.paused) sim.update(Math.min(dt, 0.1) * state.speed);
+    sim.update(Math.min(dt, 0.1) * state.speed);
     renderer.draw(view);
-    document.getElementById("clock").textContent = localClock();
     uiAccum += dt;
-    if (uiAccum > 0.25) {
+    if (uiAccum > 0.25) {            // keep the live train detail fresh
       uiAccum = 0;
-      if (view.selected && view.selected.type === "vehicle") renderInspector();
+      if (view.selected && view.selected.type === "vehicle") renderDetail();
     }
     requestAnimationFrame(frame);
   }
@@ -493,6 +492,7 @@
   buildLegend();
   buildSelects();
   clearTrip();
+  showView("plan");
   probeLive();
   // refresh the open station's live board periodically
   setInterval(function () {

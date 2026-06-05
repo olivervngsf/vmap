@@ -345,54 +345,95 @@
     box.querySelectorAll(".opt").forEach(function (el) {
       el.addEventListener("click", function () {
         var i = +el.dataset.i;
-        if (i === view.selectedOption) return;
         view.selectedOption = i; view.firstLegLive = null;
-        highlightOption(i); renderOptions(); fetchFirstLegLive();
+        highlightOption(i, true);      // draw + frame this option on the map
+        fetchFirstLegLive();
+        openTripDetail(i);             // open the stop-by-stop detail
       });
     });
   }
 
-  function optionCardHTML(o, i, expanded) {
+  function optionCardHTML(o, i, selected) {
     var pips = o.legs.map(function (l) {
       return '<span class="pip" style="background:' + l.color + '"></span>';
     }).join('<span class="pip-sep"></span>');
     var sub = (o.durationMin ? o.durationMin + " min" : "") +
       " · " + o.transfers + " transfer" + (o.transfers === 1 ? "" : "s");
-    var head =
+    return '<div class="opt' + (selected ? " selected" : "") + '" data-i="' + i + '">' +
       '<div class="opt-top"><span class="opt-time">' + o.depart + " → " + o.arrive + "</span>" +
       (o.fare ? '<span class="opt-fare">$' + o.fare + "</span>" : "") + "</div>" +
-      '<div class="opt-sub"><span>' + sub + '</span><span class="opt-pips">' + pips + "</span></div>";
-    return '<div class="opt' + (expanded ? " open" : "") + '" data-i="' + i + '">' +
-      head + (expanded ? '<div class="opt-steps">' + optionStepsHTML(o) + "</div>" : "") + "</div>";
+      '<div class="opt-sub"><span>' + sub + '</span><span class="opt-pips">' + pips + "</span></div>" +
+      '<div class="opt-cta">View details<span class="opt-chev">›</span></div></div>';
   }
 
-  function optionStepsHTML(o) {
-    var lid0 = legLineId(o.legs[0]);
-    var html = stepHTML("var(--green)", "Start", "<b>" + nm(o.legs[0].origin) + "</b>" + (lid0 ? codeChip(lid0, o.legs[0].origin) : ""), o.legs[0].color, false);
-    o.legs.forEach(function (l, j) {
-      var lid = legLineId(l);
-      var stops = stopCount(l.origin, l.dest);
-      var live = "";
-      if (j === 0 && view.firstLegLive) {
-        var fl = view.firstLegLive;
-        live = (fl.platform ? '<br>Platform <b>' + fl.platform + "</b>" : "") +
-          (fl.minutes != null ? ' · <span class="live">' + (fl.minutes === 0 ? "leaving now" : "live in " + fl.minutes + " min") + "</span>" : "");
+  /* ---------- trip detail (one option, every stop — Google-Maps style) ---------- */
+  function parseClock(s) {           // "6:18 PM" -> minutes since midnight
+    var m = /(\d+):(\d+)\s*(AM|PM)?/i.exec(s || ""); if (!m) return null;
+    var h = (+m[1]) % 12, min = +m[2];
+    if (m[3] && /pm/i.test(m[3])) h += 12;
+    return h * 60 + min;
+  }
+  function fmtClock(mins) {
+    mins = ((Math.round(mins) % 1440) + 1440) % 1440;
+    var h = Math.floor(mins / 60), m = mins % 60, ap = h < 12 ? "AM" : "PM", h12 = h % 12 || 12;
+    return h12 + ":" + (m < 10 ? "0" : "") + m + " " + ap;
+  }
+  function stopLabel(sid, lid) { return nm(sid) + (lid ? codeChip(lid, sid) : ""); }
+  function firstLiveSub(fl) {
+    if (!fl) return "";
+    return (fl.platform ? '<br>Platform <b>' + fl.platform + "</b>" : "") +
+      (fl.minutes != null ? (fl.platform ? " · " : "<br>") + '<span class="live">' +
+        (fl.minutes === 0 ? "leaving now" : "live in " + fl.minutes + " min") + "</span>" : "");
+  }
+  // one timeline row: time | rail(node + line down) | name + optional sub
+  function tstep(time, size, nodeColor, downColor, label, sub) {
+    var node = '<span class="tstep-node' + (size === "sm" ? " sm" : "") + '" style="' +
+      (size === "sm" ? "background:" + nodeColor : "border-color:" + nodeColor) + '"></span>';
+    var line = '<span class="tstep-line" style="' + (downColor ? "background:" + downColor : "opacity:0") + '"></span>';
+    return '<div class="tstep' + (size === "sm" ? " mid" : "") + '">' +
+      '<span class="tstep-time">' + (time || "") + "</span>" +
+      '<span class="tstep-rail">' + node + line + "</span>" +
+      '<div class="tstep-body"><div class="tstep-name">' + label + "</div>" +
+      (sub ? '<div class="tstep-sub">' + sub + "</div>" : "") + "</div></div>";
+  }
+  function tripDetailHTML(o) {
+    var legs = o.legs, rows = "", j, k;
+    for (j = 0; j < legs.length; j++) {
+      var l = legs[j], lid = legLineId(l), path = legPath(l.origin, l.dest);
+      var d0 = parseClock(l.depart), d1 = parseClock(l.arrive), N = path.length, nst = N - 1;
+      var ride = 'Board <span class="pill" style="background:' + l.color + '">' + l.line + "</span> toward " + nm(l.headAbbr) +
+        "<br>" + (nst > 0 ? nst + " stop" + (nst === 1 ? "" : "s") + " · " : "") + l.depart + " – " + l.arrive +
+        (j === 0 ? firstLiveSub(view.firstLegLive) : "");
+      if (j === 0) {
+        rows += tstep(l.depart, "big", "var(--green)", l.color, stopLabel(l.origin, lid), ride);
+      } else {                              // transfer station == prev dest == this origin
+        rows += tstep(legs[j - 1].arrive, "big", l.color, l.color, stopLabel(l.origin, lid),
+          '<span class="xfer">Transfer</span><br>' + ride);
       }
-      var action =
-        'Board <span class="pill" style="background:' + l.color + '">' + l.line + "</span> " +
-        "toward " + nm(l.headAbbr) +
-        "<br>" + (stops != null ? "ride " + stops + " stop" + (stops === 1 ? "" : "s") + " · " : "") +
-        l.depart + " – " + l.arrive + live +
-        '<br><span class="step-alight">↓ exit at <b>' + nm(l.dest) + "</b>" + (lid ? codeChip(lid, l.dest) : "") + "</span>";
-      html += stepHTML(l.color, nm(l.origin) + (lid ? codeChip(lid, l.origin) : ""), action, l.color, false);
-      if (j < o.legs.length - 1) {
-        html += stepHTML("var(--amber)", nm(l.dest),
-          "Transfer to your next train", "#9aa6bd", false);
+      for (k = 1; k < N - 1; k++) {         // intermediate stops (times interpolated across the leg)
+        var t = (d0 != null && d1 != null) ? fmtClock(d0 + (d1 - d0) * k / (N - 1)) : "";
+        rows += tstep(t, "sm", l.color, l.color, stopLabel(path[k], lid), "");
       }
-    });
-    var lastLeg = o.legs[o.legs.length - 1];
-    html += stepHTML("var(--red)", "Arrive", "<b>" + nm(lastLeg.dest) + "</b>", "#ff6b6b", true);
-    return html;
+    }
+    var last = legs[legs.length - 1];
+    rows += tstep(last.arrive, "big", "var(--red)", null, stopLabel(last.dest, legLineId(last)), '<span class="arrive">Arrive</span>');
+
+    var head =
+      '<div class="trip-head"><div class="trip-route">' +
+        '<b>' + nm(legs[0].origin) + "</b><span class=\"trip-arrow\">→</span><b>" + nm(last.dest) + "</b></div>" +
+      '<div class="trip-when">' + o.depart + " – " + o.arrive +
+        (o.durationMin ? " · " + o.durationMin + " min" : "") + "</div>" +
+      '<div class="trip-tags">' + (o.fare ? "$" + o.fare + " · " : "") +
+        o.transfers + " transfer" + (o.transfers === 1 ? "" : "s") + "</div></div>";
+    return head + advisoriesHTML() + '<div class="tsteps">' + rows + "</div>" +
+      (o.fare ? '<div class="trip-cost">Cost <b>$' + o.fare + "</b></div>" : "");
+  }
+  function openTripDetail(i) {
+    var o = view.tripOptions && view.tripOptions[i];
+    if (!o) return;
+    view.tripDetailOpen = i;
+    document.getElementById("trip-body").innerHTML = tripDetailHTML(o);
+    showView("trip");
   }
 
   // Real-time overlay for the first leg: platform + live minutes from ETD.
@@ -406,7 +447,8 @@
         if (d.destAbbr === leg.headAbbr && d.minutes != null && (!match || d.minutes < match.minutes)) match = d;
       });
       view.firstLegLive = match ? { platform: match.platform, minutes: match.minutes } : null;
-      if (view.tripOptions) renderOptions();
+      if (view.tripDetailOpen != null) openTripDetail(view.tripDetailOpen);  // refresh the open detail
+      else if (view.tripOptions) renderOptions();
     }).catch(function () {});
   }
 
@@ -501,12 +543,14 @@
   function peekSheet() { body.classList.remove("sheet-expanded"); }
 
   function showView(name) {
-    ["plan", "lines", "detail"].forEach(function (v) {
+    ["plan", "lines", "detail", "trip"].forEach(function (v) {
       document.getElementById("view-" + v).hidden = (v !== name);
     });
     if (name === "lines") resetLinesView();
-    document.getElementById("seg").style.display = (name === "detail") ? "none" : "flex";
-    if (name !== "detail") {
+    if (name !== "trip") view.tripDetailOpen = null;
+    var chrome = (name === "detail" || name === "trip");
+    document.getElementById("seg").style.display = chrome ? "none" : "flex";
+    if (!chrome) {
       lastTab = name;
       document.querySelectorAll(".seg-btn").forEach(function (b) {
         b.classList.toggle("active", b.dataset.tab === name);
@@ -698,6 +742,9 @@
   });
   document.getElementById("detail-back").addEventListener("click", function () {
     view.selected = null; showView(lastTab);
+  });
+  document.getElementById("trip-back").addEventListener("click", function () {
+    showView("plan");                 // back to the options list (still rendered)
   });
 
   // desktop collapse / reopen

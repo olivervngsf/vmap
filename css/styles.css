@@ -385,6 +385,21 @@ html, body {
 .dep-min small { font-size: 10px; font-weight: 600; color: var(--tertiary); }
 .dep-updated { font-size: 10px; color: var(--tertiary); margin-top: 12px; text-align: right; }
 .loading { font-size: 13px; color: var(--tertiary); padding: 10px 0; }
+
+/* spinning "working on it" indicator */
+.loading-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 16px 2px; font-size: 14px; font-weight: 500; color: var(--secondary);
+  animation: fade 0.2s ease;
+}
+.spinner {
+  width: 18px; height: 18px; flex: 0 0 auto;
+  border-radius: 50%;
+  border: 2.5px solid var(--fill-strong);
+  border-top-color: var(--accent);
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
 .schematic-note {
   font-size: 12px; color: var(--secondary);
   background: var(--fill); border-radius: 12px;
@@ -476,4 +491,6 @@ html, body {
     transition-duration: 0.001ms !important;
     scroll-behavior: auto !important;
   }
+  /* a loading spinner is essential feedback — keep it turning */
+  .spinner { animation-duration: 0.7s !important; animation-iteration-count: infinite !important; }
 }

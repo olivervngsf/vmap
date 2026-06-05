@@ -62,13 +62,21 @@ VMAP.Renderer = (function () {
     });
     this.flyToBounds(minX, minY, maxX, maxY, 170);
   };
-  // Gently pan a station into view only if it's hidden behind the panel/edges.
-  Renderer.prototype.ensureVisible = function (s) {
+  // Zoom IN and center on a single station (when only the start is chosen).
+  Renderer.prototype.flyToStation = function (s) {
     if (!s) return;
-    var sp = this.worldToScreen(s), inset = this._leftInset(), m = 90;
-    if (sp.x > inset + m && sp.x < this.w - m && sp.y > m && sp.y < this.h - m) return;
+    var inset = this._leftInset(), availW = this.w - inset - 40;
+    var scale = Math.max(1.2, Math.min(2.2, availW / 520));   // show A + some context
     var cx = inset + (this.w - inset) / 2, cy = this.h / 2;
-    this.camTarget = { scale: this.cam.scale, tx: cx - s.x * this.cam.scale, ty: cy - s.y * this.cam.scale };
+    var target = { scale: scale, tx: cx - s.x * scale, ty: cy - s.y * scale };
+    if (this.reduceMotion) { this.cam.scale = target.scale; this.cam.tx = target.tx; this.cam.ty = target.ty; this.camTarget = null; }
+    else this.camTarget = target;
+  };
+  // Zoom OUT to frame both endpoints (the moment B is chosen, before results).
+  Renderer.prototype.flyToEndpoints = function (aId, bId) {
+    var a = this.net.stationsById[aId], b = this.net.stationsById[bId];
+    if (!a || !b) return;
+    this.flyToBounds(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.max(a.x, b.x), Math.max(a.y, b.y), 180);
   };
 
   Renderer.prototype.resize = function () {

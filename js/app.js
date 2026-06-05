@@ -42,13 +42,13 @@
   // both ends exist.
   function onEndpointChosen(which) {
     updateFieldDots();
-    if (which && view.endpoints[which]) {
-      renderer.pingEndpoint(which);
-      if (!(view.endpoints.from && view.endpoints.to)) {
-        renderer.ensureVisible(net.stationsById[view.endpoints[which]]);
-      }
+    if (which && view.endpoints[which]) renderer.pingEndpoint(which);
+    if (view.endpoints.from && view.endpoints.to) {
+      renderer.flyToEndpoints(view.endpoints.from, view.endpoints.to);  // zoom out to frame the trip
+      planTrip();
+    } else if (which && view.endpoints[which]) {
+      renderer.flyToStation(net.stationsById[view.endpoints[which]]);   // zoom in on the start
     }
-    if (view.endpoints.from && view.endpoints.to) planTrip();
   }
 
   // index of a station within a line's ordered stop list
@@ -132,6 +132,11 @@
       li.classList.toggle("focused", view.focusLine === id);
       li.classList.toggle("muted", !!view.hiddenLines[id]);
     });
+  }
+
+  // spinning "working on it" indicator
+  function loadingHTML(msg) {
+    return '<div class="loading-row"><span class="spinner" aria-hidden="true"></span><span>' + msg + "</span></div>";
   }
 
   /* ---------- code badges (the POV layer) ---------- */
@@ -249,9 +254,9 @@
     if (!f || !t) { fail("Pick a start and destination to see directions."); return; }
     if (f === t) { fail("Start and destination are the same station."); return; }
     updateFieldDots();
+    itinBox().innerHTML = loadingHTML("Finding trips…");   // spinner shows immediately
 
     if (state.liveEnabled === false) { localPlan(f, t); return; }
-    itinBox().innerHTML = '<p class="loading">Finding trips…</p>';
     VMAP.live.tripPlan(f, t).then(function (res) {
       if (f !== view.endpoints.from || t !== view.endpoints.to) return;   // stale
       if (!res.options || !res.options.length) { localPlan(f, t); return; }

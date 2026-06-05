@@ -18,6 +18,7 @@ VMAP.Renderer = (function () {
     this.dpr = window.devicePixelRatio || 1;
     this.cam = { scale: 1, tx: 0, ty: 0 };
     this.camTarget = null;          // {scale,tx,ty} the camera eases toward
+    this.zoomTarget = null;         // {scale,sx,sy,wx,wy} cursor-anchored smooth zoom
     this.focus = { type: "fit" };   // what the camera is framing (so we can re-center on resize)
     this._snap = false;             // when true, framing applies instantly (no ease)
     this._epAnim = {};              // which -> t0 (endpoint drop-in start)
@@ -61,6 +62,7 @@ VMAP.Renderer = (function () {
              w: Math.max(60, r.x1 - r.x0), h: Math.max(60, r.y1 - r.y0) };
   }
   Renderer.prototype._applyCam = function (target) {
+    this.zoomTarget = null;
     if (this.reduceMotion || this._snap) { this.cam.scale = target.scale; this.cam.tx = target.tx; this.cam.ty = target.ty; this.camTarget = null; }
     else this.camTarget = target;
   };
@@ -138,11 +140,25 @@ VMAP.Renderer = (function () {
   };
 
   Renderer.prototype.panBy = function (dx, dy) {
-    this.camTarget = null; this.focus = { type: "free" };   // user takes control
+    this.camTarget = null; this.zoomTarget = null; this.focus = { type: "free" };   // user takes control
     this.cam.tx += dx; this.cam.ty += dy;
   };
-  Renderer.prototype.zoomAt = function (sx, sy, factor) {
+  // Smooth, cursor-anchored zoom (the screen point (sx,sy) stays put while the
+  // map eases to the new scale). Repeated calls accumulate, like Google Maps.
+  Renderer.prototype.zoomToward = function (sx, sy, factor) {
     this.camTarget = null; this.focus = { type: "free" };
+    var base = this.zoomTarget ? this.zoomTarget.scale : this.cam.scale;
+    var target = Math.max(0.3, Math.min(3.2, base * factor));
+    var w = this.screenToWorld({ x: sx, y: sy });
+    if (this.reduceMotion) {
+      this.cam.scale = target; this.cam.tx = sx - w.x * target; this.cam.ty = sy - w.y * target;
+      this.zoomTarget = null; return;
+    }
+    this.zoomTarget = { scale: target, sx: sx, sy: sy, wx: w.x, wy: w.y };
+  };
+  // Instant cursor-anchored zoom (used by pinch, which tracks fingers 1:1).
+  Renderer.prototype.zoomAt = function (sx, sy, factor) {
+    this.camTarget = null; this.zoomTarget = null; this.focus = { type: "free" };
     var before = this.screenToWorld({ x: sx, y: sy });
     this.cam.scale = Math.max(0.3, Math.min(3.2, this.cam.scale * factor));
     var after = this.worldToScreen(before);
@@ -162,6 +178,7 @@ VMAP.Renderer = (function () {
     this.cam.scale = Math.max(0.3, Math.min(2.4, Math.min(sx, sy)));
     this.cam.tx = (this.w - (minX + maxX) * this.cam.scale) / 2;
     this.cam.ty = (this.h - (minY + maxY) * this.cam.scale) / 2;
+    this.camTarget = null; this.zoomTarget = null;
     this.focus = { type: "fit" };
   };
 
@@ -170,8 +187,18 @@ VMAP.Renderer = (function () {
   Renderer.prototype.draw = function (view) {
     var ctx = this.ctx, cam = this.cam;
 
-    // critically-damped camera glide toward any active target
-    if (this.camTarget) {
+    // smooth zoom toward an anchor (Google-Maps style): ease the scale and keep
+    // the anchored world point pinned under the same screen point.
+    if (this.zoomTarget) {
+      var z = this.zoomTarget;
+      cam.scale += (z.scale - cam.scale) * 0.26;
+      if (Math.abs(z.scale - cam.scale) < 0.0015) cam.scale = z.scale;
+      cam.tx = z.sx - z.wx * cam.scale;
+      cam.ty = z.sy - z.wy * cam.scale;
+      if (cam.scale === z.scale) this.zoomTarget = null;
+    }
+    // critically-damped camera glide toward any active framing target
+    else if (this.camTarget) {
       var t = this.camTarget, k = 0.16;
       cam.scale += (t.scale - cam.scale) * k;
       cam.tx += (t.tx - cam.tx) * k;

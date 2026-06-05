@@ -769,8 +769,16 @@
   canvas.addEventListener("wheel", function (e) {
     e.preventDefault();
     var rect = canvas.getBoundingClientRect();
-    renderer.zoomAt(e.clientX - rect.left, e.clientY - rect.top, e.deltaY < 0 ? 1.12 : 0.89);
+    var dy = e.deltaY * (e.deltaMode === 1 ? 16 : 1);          // normalize line vs pixel deltas
+    var f = Math.max(0.6, Math.min(1.7, Math.exp(-dy * 0.0015)));
+    renderer.zoomToward(e.clientX - rect.left, e.clientY - rect.top, f);  // smooth, cursor-anchored
   }, { passive: false });
+  // double-click zooms in one step, centered on the click (like Google Maps)
+  canvas.addEventListener("dblclick", function (e) {
+    e.preventDefault();
+    var rect = canvas.getBoundingClientRect();
+    renderer.zoomToward(e.clientX - rect.left, e.clientY - rect.top, 2.0);
+  });
 
   function handleClick(e) {
     var rect = canvas.getBoundingClientRect();
@@ -826,8 +834,8 @@
   });
 
   // floating map controls
-  document.getElementById("mc-zoom-in").addEventListener("click", function () { renderer.zoomAt(renderer.w / 2, renderer.h / 2, 1.25); });
-  document.getElementById("mc-zoom-out").addEventListener("click", function () { renderer.zoomAt(renderer.w / 2, renderer.h / 2, 0.8); });
+  document.getElementById("mc-zoom-in").addEventListener("click", function () { renderer.zoomToward(renderer.w / 2, renderer.h / 2, 1.55); });
+  document.getElementById("mc-zoom-out").addEventListener("click", function () { renderer.zoomToward(renderer.w / 2, renderer.h / 2, 1 / 1.55); });
   document.getElementById("mc-reset").addEventListener("click", function () { renderer.fit(); });
 
   // planner buttons
@@ -844,8 +852,8 @@
   document.addEventListener("keydown", function (e) {
     if (e.target.tagName === "SELECT" || e.target.tagName === "INPUT") return;
     switch (e.key) {
-      case "+": case "=": renderer.zoomAt(renderer.w / 2, renderer.h / 2, 1.2); break;
-      case "-": renderer.zoomAt(renderer.w / 2, renderer.h / 2, 0.83); break;
+      case "+": case "=": renderer.zoomToward(renderer.w / 2, renderer.h / 2, 1.4); break;
+      case "-": renderer.zoomToward(renderer.w / 2, renderer.h / 2, 1 / 1.4); break;
       case "r": case "R": renderer.fit(); break;
       case "ArrowLeft": renderer.panBy(60, 0); break;
       case "ArrowRight": renderer.panBy(-60, 0); break;

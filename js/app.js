@@ -147,6 +147,13 @@
     var n = parseInt(c, 16), r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
     return (0.299 * r + 0.587 * g + 0.114 * b) > 150 ? "#0c1422" : "#ffffff";
   }
+  function rgba(hex, a) {
+    var c = (hex || "#888").replace("#", "");
+    if (c.length === 3) c = c[0] + c[0] + c[1] + c[1] + c[2] + c[2];
+    var n = parseInt(c, 16);
+    return "rgba(" + ((n >> 16) & 255) + "," + ((n >> 8) & 255) + "," + (n & 255) + "," + a + ")";
+  }
+  function codeStr(lid, abbr) { var m = net.codeByLineStation[lid]; return (m && m[abbr]) || ""; }
   function codeBadge(c, big) {
     return '<span class="code-badge' + (big ? " lg" : "") + '" style="background:' + c.color +
       ";color:" + textOn(c.color) + '">' + c.code + "</span>";
@@ -253,7 +260,7 @@
 
   function planTrip() {
     var f = view.endpoints.from, t = view.endpoints.to;
-    view.firstDep = null; view.tripOptions = null; view.firstLegLive = null;
+    view.firstDep = null; view.tripOptions = null;
     function fail(msg) { itinBox().innerHTML = '<p class="no-route">' + msg + "</p>"; clearRouteHighlight(); }
     if (!f || !t) { fail("Pick a start and destination to see directions."); return; }
     if (f === t) { fail("Start and destination are the same station."); return; }
@@ -269,7 +276,6 @@
       view.selectedOption = 0;
       highlightOption(0, true);
       renderOptions();
-      fetchFirstLegLive();
     }).catch(function () { localPlan(f, t); });
   }
 
@@ -288,7 +294,7 @@
   function clearRouteHighlight() { view.route = view.routePath = view.routeSet = null; view.tripOptions = null; }
   function clearTrip() {
     view.endpoints.from = view.endpoints.to = null;
-    view.firstDep = null; view.firstLegLive = null;
+    view.firstDep = null;
     clearRouteHighlight();
     renderer.clearAnims();
     renderer.focus = { type: "free" };   // stop re-framing a now-cleared route on resize
@@ -350,10 +356,9 @@
     box.querySelectorAll(".opt").forEach(function (el) {
       el.addEventListener("click", function () {
         var i = +el.dataset.i;
-        view.selectedOption = i; view.firstLegLive = null;
+        view.selectedOption = i;
         highlightOption(i, true);      // draw + frame this option on the map
-        fetchFirstLegLive();
-        openTripDetail(i);             // open the stop-by-stop detail
+        openTripDetail(i);             // open the stop-by-stop detail (fetches platforms)
       });
     });
   }
@@ -383,45 +388,57 @@
     var h = Math.floor(mins / 60), m = mins % 60, ap = h < 12 ? "AM" : "PM", h12 = h % 12 || 12;
     return h12 + ":" + (m < 10 ? "0" : "") + m + " " + ap;
   }
-  function stopLabel(sid, lid) { return nm(sid) + (lid ? codeChip(lid, sid) : ""); }
-  function firstLiveSub(fl) {
-    if (!fl) return "";
-    return (fl.platform ? '<br>Platform <b>' + fl.platform + "</b>" : "") +
-      (fl.minutes != null ? (fl.platform ? " · " : "<br>") + '<span class="live">' +
-        (fl.minutes === 0 ? "leaving now" : "live in " + fl.minutes + " min") + "</span>" : "");
-  }
-  // one timeline row: time | rail(node + line down) | name + optional sub
-  function tstep(time, size, nodeColor, downColor, label, sub) {
-    var node = '<span class="tstep-node' + (size === "sm" ? " sm" : "") + '" style="' +
-      (size === "sm" ? "background:" + nodeColor : "border-color:" + nodeColor) + '"></span>';
-    var line = '<span class="tstep-line" style="' + (downColor ? "background:" + downColor : "opacity:0") + '"></span>';
-    return '<div class="tstep' + (size === "sm" ? " mid" : "") + '">' +
-      '<span class="tstep-time">' + (time || "") + "</span>" +
+  // one timeline row — code (letter+number) on the LEFT (as the node), name in
+  // the middle, time on the RIGHT.
+  function tstep(o) {
+    var node = '<span class="tnode' + (o.major ? "" : " sm") + '" style="background:' + o.color +
+      ";color:" + textOn(o.color) + '">' + (o.code || "") + "</span>";
+    var line = '<span class="tstep-line" style="' + (o.downColor ? "background:" + o.downColor : "opacity:0") + '"></span>';
+    return '<div class="tstep' + (o.major ? "" : " mid") + '">' +
       '<span class="tstep-rail">' + node + line + "</span>" +
-      '<div class="tstep-body"><div class="tstep-name">' + label + "</div>" +
-      (sub ? '<div class="tstep-sub">' + sub + "</div>" : "") + "</div></div>";
+      '<div class="tstep-body"><div class="tstep-name">' + o.name + "</div>" +
+        (o.sub ? '<div class="tstep-sub">' + o.sub + "</div>" : "") + "</div>" +
+      '<span class="tstep-time">' + (o.time || "") + "</span></div>";
+  }
+  // Standout "which train do I board" banner + platform + ride length.
+  function boardBanner(l) {
+    var nst = legPath(l.origin, l.dest).length - 1;
+    var live = l._live;
+    var plat = live && live.platform
+      ? '<span class="plat">Platform <b>' + live.platform + "</b></span>"
+      : (state.liveEnabled !== false ? '<span class="plat dim">platform…</span>' : "");
+    var mins = live && live.minutes != null
+      ? '<span class="live">' + (live.minutes === 0 ? "leaving now" : "in " + live.minutes + " min") + "</span>" : "";
+    return '<div class="toward" style="background:' + rgba(l.color, 0.16) + ";border-color:" + l.color + '">' +
+        '<span class="toward-pill" style="background:' + l.color + ";color:" + textOn(l.color) + '">' + l.line + "</span>" +
+        '<span class="toward-dir">→ toward <b>' + nm(l.headAbbr) + "</b></span></div>" +
+      '<div class="board-meta">Ride ' + nst + " stop" + (nst === 1 ? "" : "s") + " · " + l.depart + " – " + l.arrive + "</div>" +
+      (plat || mins ? '<div class="board-live">' + plat + mins + "</div>" : "");
   }
   function tripDetailHTML(o) {
     var legs = o.legs, rows = "", j, k;
     for (j = 0; j < legs.length; j++) {
       var l = legs[j], lid = legLineId(l), path = legPath(l.origin, l.dest);
-      var d0 = parseClock(l.depart), d1 = parseClock(l.arrive), N = path.length, nst = N - 1;
-      var ride = 'Board <span class="pill" style="background:' + l.color + '">' + l.line + "</span> toward " + nm(l.headAbbr) +
-        "<br>" + (nst > 0 ? nst + " stop" + (nst === 1 ? "" : "s") + " · " : "") + l.depart + " – " + l.arrive +
-        (j === 0 ? firstLiveSub(view.firstLegLive) : "");
-      if (j === 0) {
-        rows += tstep(l.depart, "big", "var(--green)", l.color, stopLabel(l.origin, lid), ride);
-      } else {                              // transfer station == prev dest == this origin
-        rows += tstep(legs[j - 1].arrive, "big", l.color, l.color, stopLabel(l.origin, lid),
-          '<span class="xfer">Transfer</span><br>' + ride);
-      }
-      for (k = 1; k < N - 1; k++) {         // intermediate stops (times interpolated across the leg)
-        var t = (d0 != null && d1 != null) ? fmtClock(d0 + (d1 - d0) * k / (N - 1)) : "";
-        rows += tstep(t, "sm", l.color, l.color, stopLabel(path[k], lid), "");
+      var d0 = parseClock(l.depart), d1 = parseClock(l.arrive), N = path.length;
+      rows += tstep({                          // board / transfer station
+        code: codeStr(lid, l.origin), color: l.color, downColor: l.color, major: true,
+        name: nm(l.origin) + (j > 0 ? ' <span class="xfer">· transfer</span>' : ""),
+        time: (j === 0 ? l.depart : legs[j - 1].arrive),
+        sub: boardBanner(l)
+      });
+      for (k = 1; k < N - 1; k++) {            // intermediate stops (times interpolated across the leg)
+        rows += tstep({
+          code: codeStr(lid, path[k]), color: l.color, downColor: l.color, major: false,
+          name: nm(path[k]),
+          time: (d0 != null && d1 != null) ? fmtClock(d0 + (d1 - d0) * k / (N - 1)) : ""
+        });
       }
     }
-    var last = legs[legs.length - 1];
-    rows += tstep(last.arrive, "big", "var(--red)", null, stopLabel(last.dest, legLineId(last)), '<span class="arrive">Arrive</span>');
+    var last = legs[legs.length - 1], llid = legLineId(last);
+    rows += tstep({                            // arrive
+      code: codeStr(llid, last.dest), color: last.color, downColor: null, major: true,
+      name: nm(last.dest), time: last.arrive, sub: '<span class="arrive">Arrive</span>'
+    });
 
     var head =
       '<div class="trip-head"><div class="trip-route">' +
@@ -439,22 +456,27 @@
     view.tripDetailOpen = i;
     document.getElementById("trip-body").innerHTML = tripDetailHTML(o);
     showView("trip");
+    fetchTripPlatforms(o, i);
   }
 
-  // Real-time overlay for the first leg: platform + live minutes from ETD.
-  function fetchFirstLegLive() {
-    var o = view.tripOptions && view.tripOptions[view.selectedOption];
-    if (!o) return;
-    var leg = o.legs[0];
-    VMAP.live.departures(leg.origin).then(function (res) {
-      var match = null;
-      res.list.forEach(function (d) {
-        if (d.destAbbr === leg.headAbbr && d.minutes != null && (!match || d.minutes < match.minutes)) match = d;
-      });
-      view.firstLegLive = match ? { platform: match.platform, minutes: match.minutes } : null;
-      if (view.tripDetailOpen != null) openTripDetail(view.tripDetailOpen);  // refresh the open detail
-      else if (view.tripOptions) renderOptions();
-    }).catch(function () {});
+  // Real-time platform per boarding: match each leg's board-station ETD by the
+  // train's head station, so riders know which platform to stand on.
+  function fetchTripPlatforms(o, i) {
+    if (state.liveEnabled === false) return;
+    o.legs.forEach(function (l) {
+      VMAP.live.departures(l.origin).then(function (res) {
+        var best = null;
+        res.list.forEach(function (d) {
+          if (d.destAbbr === l.headAbbr && d.minutes != null && (!best || d.minutes < best.minutes)) best = d;
+        });
+        if (!best) return;
+        l._live = { platform: best.platform, minutes: best.minutes, direction: best.direction };
+        if (view.tripDetailOpen === i) {
+          var el = document.getElementById("trip-body");
+          if (el) el.innerHTML = tripDetailHTML(o);
+        }
+      }).catch(function () {});
+    });
   }
 
   function loadAdvisories() {

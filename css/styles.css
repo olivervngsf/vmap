@@ -312,21 +312,42 @@ html, body {
 .trip-when { font-size: 14px; color: var(--label); margin-top: 5px; }
 .trip-tags { font-size: 13px; color: var(--secondary); margin-top: 2px; }
 .tsteps { margin-top: 4px; }
-.tstep { display: grid; grid-template-columns: 58px 18px 1fr; gap: 11px; }
-.tstep-time { font-size: 12px; color: var(--secondary); text-align: right; padding-top: 1px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* code (letter+number) on the LEFT as the node, name middle, time RIGHT */
+.tstep { display: grid; grid-template-columns: 32px 1fr auto; gap: 12px; }
 .tstep-rail { display: flex; flex-direction: column; align-items: center; }
-.tstep-node { width: 14px; height: 14px; border-radius: 50%; border: 3px solid; background: var(--panel-solid); flex: 0 0 auto; z-index: 1; margin-top: 1px; }
-.tstep-node.sm { width: 8px; height: 8px; border: 0; margin-top: 4px; }
-.tstep-line { width: 4px; flex: 1; min-height: 16px; border-radius: 2px; opacity: 0.92; }
-.tstep-body { padding-bottom: 16px; min-width: 0; }
-.tstep.mid .tstep-body { padding-bottom: 10px; }
+.tnode {
+  width: 30px; height: 30px; border-radius: 50%; flex: 0 0 auto; z-index: 1;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10.5px; font-weight: 800; letter-spacing: -0.4px;
+  box-shadow: 0 0 0 3px var(--panel-solid);
+}
+.tstep.mid .tnode { width: 24px; height: 24px; font-size: 9px; opacity: 0.92; }
+.tstep-line { width: 4px; flex: 1; min-height: 14px; border-radius: 2px; opacity: 0.9; margin: 2px 0; }
+.tstep-body { padding-bottom: 16px; min-width: 0; padding-top: 6px; }
+.tstep.mid .tstep-body { padding-bottom: 12px; padding-top: 3px; }
 .tstep-name { font-size: 14px; font-weight: 600; letter-spacing: -0.2px; }
 .tstep.mid .tstep-name { font-size: 13px; font-weight: 500; color: var(--secondary); }
-.tstep-sub { font-size: 13px; color: var(--secondary); margin-top: 5px; line-height: 1.55; }
-.tstep-sub .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; color: #08121f; font-weight: 700; font-size: 11px; letter-spacing: 0.2px; }
-.tstep-sub .live { color: var(--green); font-weight: 700; }
-.tstep-sub .xfer { color: var(--amber); font-weight: 700; text-transform: uppercase; font-size: 11px; letter-spacing: 0.4px; }
-.tstep-sub .arrive { color: var(--red); font-weight: 700; }
+.tstep-time { font-size: 12.5px; color: var(--secondary); white-space: nowrap; font-variant-numeric: tabular-nums; padding-top: 7px; }
+.tstep.mid .tstep-time { padding-top: 4px; font-size: 12px; }
+.tstep-sub { margin-top: 8px; }
+
+/* standout "which train do I board" banner */
+.toward {
+  display: inline-flex; align-items: center; gap: 9px; flex-wrap: wrap;
+  padding: 8px 12px 8px 10px; border-radius: 10px;
+  border-left: 3px solid; max-width: 100%;
+}
+.toward-pill { display: inline-block; padding: 3px 9px; border-radius: 999px; font-weight: 800; font-size: 11px; letter-spacing: 0.2px; flex: 0 0 auto; }
+.toward-dir { font-size: 14px; color: var(--label); font-weight: 500; }
+.toward-dir b { font-weight: 800; letter-spacing: -0.2px; }
+.board-meta { font-size: 12.5px; color: var(--secondary); margin-top: 7px; }
+.board-live { margin-top: 7px; display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+.plat { display: inline-flex; align-items: center; background: var(--accent); color: #fff; font-size: 12.5px; font-weight: 600; padding: 4px 11px; border-radius: 8px; }
+.plat b { font-weight: 800; margin-left: 4px; }
+.plat.dim { background: var(--fill-strong); color: var(--secondary); font-weight: 600; }
+.board-live .live { color: var(--green); font-weight: 700; font-size: 13px; }
+.xfer { color: var(--amber); font-weight: 700; text-transform: uppercase; font-size: 10.5px; letter-spacing: 0.5px; }
+.arrive { color: var(--red); font-weight: 700; font-size: 13px; }
 .trip-cost { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--hairline); font-size: 14px; color: var(--secondary); }
 .trip-cost b { color: var(--label); font-size: 15px; }
 

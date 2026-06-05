@@ -313,15 +313,15 @@ html, body {
 .trip-tags { font-size: 13px; color: var(--secondary); margin-top: 2px; }
 .tsteps { margin-top: 4px; }
 /* code (letter+number) on the LEFT as the node, name middle, time RIGHT */
-.tstep { display: grid; grid-template-columns: 32px 1fr auto; gap: 12px; }
+.tstep { display: grid; grid-template-columns: 38px 1fr auto; gap: 12px; }
 .tstep-rail { display: flex; flex-direction: column; align-items: center; }
 .tnode {
-  width: 30px; height: 30px; border-radius: 50%; flex: 0 0 auto; z-index: 1;
+  width: 36px; height: 36px; border-radius: 50%; flex: 0 0 auto; z-index: 1;
   display: flex; align-items: center; justify-content: center;
-  font-size: 10.5px; font-weight: 800; letter-spacing: -0.4px;
+  font-size: 13px; font-weight: 800; letter-spacing: -0.4px;
   box-shadow: 0 0 0 3px var(--panel-solid);
 }
-.tstep.mid .tnode { width: 24px; height: 24px; font-size: 9px; opacity: 0.92; }
+.tstep.mid .tnode { width: 30px; height: 30px; font-size: 11px; opacity: 0.95; }
 .tstep-line { width: 4px; flex: 1; min-height: 14px; border-radius: 2px; opacity: 0.9; margin: 2px 0; }
 .tstep-body { padding-bottom: 16px; min-width: 0; padding-top: 6px; }
 .tstep.mid .tstep-body { padding-bottom: 12px; padding-top: 3px; }
@@ -360,6 +360,16 @@ html, body {
   font-size: 12px; line-height: 1.45; margin-bottom: 12px;
 }
 .alert-ico { flex: 0 0 auto; }
+.alert-text { flex: 1; min-width: 0; }
+.alert-x {
+  flex: 0 0 auto; align-self: flex-start;
+  width: 22px; height: 22px; margin: -2px -4px 0 0;
+  display: flex; align-items: center; justify-content: center;
+  background: transparent; border: none; cursor: pointer;
+  color: #ffe08a; font-size: 19px; line-height: 1; border-radius: 50%;
+  transition: background 0.15s;
+}
+.alert-x:hover { background: rgba(255, 214, 10, 0.18); }
 
 /* ============================================================
    Lines view

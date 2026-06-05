@@ -284,14 +284,21 @@
     var plan = router.plan(f, t);
     view.route = plan;
     if (!plan) { itinBox().innerHTML = '<p class="no-route">No route found.</p>'; clearRouteHighlight(); return; }
-    view.routePath = plan.path; view.routeSet = {};
+    view.routePath = plan.path; view.routeSet = {}; view.routeCodes = {};
     plan.path.forEach(function (id) { view.routeSet[id] = true; });
+    plan.steps.forEach(function (step) {           // codes per route station for map labels
+      if (step.type !== "ride") return;
+      var lid = step.line.id;
+      legPath(step.board, step.alight).forEach(function (sid) {
+        view.routeCodes[sid] = { code: codeStr(lid, sid), color: step.line.color };
+      });
+    });
     renderItinerary();
     revealRoute();
     fetchFirstDeparture(plan);
   }
 
-  function clearRouteHighlight() { view.route = view.routePath = view.routeSet = null; view.tripOptions = null; }
+  function clearRouteHighlight() { view.route = view.routePath = view.routeSet = view.routeCodes = null; view.tripOptions = null; }
   function clearTrip() {
     view.endpoints.from = view.endpoints.to = null;
     view.firstDep = null;
@@ -334,16 +341,23 @@
   function highlightOption(i, fly) {
     var o = view.tripOptions[i]; if (!o) return;
     var path = optionPath(o);
-    view.route = { live: true }; view.routePath = path; view.routeSet = {};
+    view.route = { live: true }; view.routePath = path; view.routeSet = {}; view.routeCodes = {};
     path.forEach(function (id) { view.routeSet[id] = true; });
+    o.legs.forEach(function (l) {                 // codes per route station for the map labels
+      var lid = legLineId(l); if (!lid) return;
+      legPath(l.origin, l.dest).forEach(function (sid) {
+        view.routeCodes[sid] = { code: codeStr(lid, sid), color: l.color };
+      });
+    });
     if (fly) revealRoute(); else renderer.animateRoute();
   }
   function nm(abbr) { var s = net.stationsById[abbr]; return s ? s.name : abbr; }
 
   function advisoriesHTML() {
-    if (!view.advisories || !view.advisories.length) return "";
-    return '<div class="alert-banner"><span class="alert-ico">⚠</span><div>' +
-      view.advisories.map(function (a) { return a; }).join("<br>") + "</div></div>";
+    if (view.advisoriesDismissed || !view.advisories || !view.advisories.length) return "";
+    return '<div class="alert-banner"><span class="alert-ico">⚠</span>' +
+      '<div class="alert-text">' + view.advisories.join("<br>") + "</div>" +
+      '<button class="alert-x" aria-label="Dismiss alert">×</button></div>';
   }
 
   function renderOptions() {
@@ -464,11 +478,17 @@
   function fetchTripPlatforms(o, i) {
     if (state.liveEnabled === false) return;
     o.legs.forEach(function (l) {
+      var wantColor = String(l.line || "").split(" ")[0].toUpperCase();
       VMAP.live.departures(l.origin).then(function (res) {
         var best = null;
-        res.list.forEach(function (d) {
+        res.list.forEach(function (d) {       // prefer the exact train (same head station)
           if (d.destAbbr === l.headAbbr && d.minutes != null && (!best || d.minutes < best.minutes)) best = d;
         });
+        if (!best) {                          // fall back to any train on the same line
+          res.list.forEach(function (d) {
+            if (d.colorName === wantColor && d.minutes != null && (!best || d.minutes < best.minutes)) best = d;
+          });
+        }
         if (!best) return;
         l._live = { platform: best.platform, minutes: best.minutes, direction: best.direction };
         if (view.tripDetailOpen === i) {
@@ -772,6 +792,14 @@
   });
   document.getElementById("trip-back").addEventListener("click", function () {
     showView("plan");                 // back to the options list (still rendered)
+  });
+
+  // dismiss the service-alert banner (delegated — the banner is re-rendered)
+  panel.addEventListener("click", function (e) {
+    if (!e.target.closest(".alert-x")) return;
+    view.advisoriesDismissed = true;
+    if (view.tripDetailOpen != null) openTripDetail(view.tripDetailOpen);
+    else if (view.tripOptions) renderOptions();
   });
 
   // desktop collapse / reopen

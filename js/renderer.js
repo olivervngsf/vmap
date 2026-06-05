@@ -34,6 +34,13 @@ VMAP.Renderer = (function () {
   function easeOutBack(t) { var c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2); }
   function clamp01(t) { return t < 0 ? 0 : t > 1 ? 1 : t; }
   var now = function () { return (window.performance && performance.now) ? performance.now() : Date.now(); };
+  function rectsOverlap(a, b) { return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y; }
+  function textOnHex(hex) {
+    var c = (hex || "#888").replace("#", "");
+    if (c.length === 3) c = c[0] + c[0] + c[1] + c[1] + c[2] + c[2];
+    var n = parseInt(c, 16);
+    return (0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) > 150 ? "#0c1422" : "#ffffff";
+  }
 
   // The usable map area, in screen px, after subtracting the UI chrome:
   // the floating panel on desktop, the bottom sheet on mobile. Camera framing
@@ -468,27 +475,73 @@ VMAP.Renderer = (function () {
     });
   };
 
+  var NAME_FONT = "600 12px Segoe UI, system-ui, sans-serif";
+  var CODE_FONT = "800 10px Segoe UI, system-ui, sans-serif";
+
   Renderer.prototype._drawLabels = function (view) {
     var ctx = this.ctx, self = this;
     var showAll = this.cam.scale > 1.45;
     var showInterchange = this.cam.scale > 0.66;
-    ctx.font = "600 12px Segoe UI, system-ui, sans-serif";
-    ctx.textBaseline = "middle";
+    var routeCodes = view.routeCodes || {};
+    ctx.textBaseline = "middle"; ctx.textAlign = "left";
 
+    // 1) collect labels worth showing, with a priority (so important ones win
+    //    a spot when stations cluster downtown).
+    var cands = [];
     this.net.stations.forEach(function (s) {
-      var anyVisible = s.lines.some(function (l) { return self._lineVisible(l, view); });
-      if (!anyVisible) return;
+      if (!s.lines.some(function (l) { return self._lineVisible(l, view); })) return;
       var selected = view.selected && view.selected.type === "station" && view.selected.id === s.id;
       var onRoute = view.routeSet && view.routeSet[s.id];
       if (!((s.interchange && showInterchange) || showAll || selected || onRoute)) return;
+      var chip = routeCodes[s.id] || (selected && s.codes && s.codes[0]
+        ? { code: s.codes[0].code, color: s.codes[0].color } : null);
+      cands.push({ s: s, selected: selected, onRoute: onRoute,
+        pri: (selected ? 4 : 0) + (onRoute ? 2 : 0) + (s.interchange ? 1 : 0), chip: chip });
+    });
+    cands.sort(function (a, b) { return b.pri - a.pri; });
 
-      var tw = ctx.measureText(s.name).width;
-      var ox = s.x + 12, oy = s.y - 12;
-      ctx.fillStyle = "rgba(8,12,20,0.78)";
-      self._roundRect(ox - 5, oy - 9, tw + 10, 18, 5);
-      ctx.fill();
-      ctx.fillStyle = (selected || onRoute) ? "#ffffff" : "#d6deec";
-      ctx.fillText(s.name, ox, oy);
+    // 2) place each label, avoiding overlap with already-placed ones, trying a
+    //    few positions around the dot before giving up.
+    var placed = [];
+    cands.forEach(function (c) {
+      var s = c.s;
+      ctx.font = CODE_FONT;
+      var codeW = c.chip ? ctx.measureText(c.chip.code).width + 8 : 0;   // chip box
+      var gap = c.chip ? 5 : 0;
+      ctx.font = NAME_FONT;
+      var nameW = ctx.measureText(s.name).width;
+      var boxW = codeW + gap + nameW + 10, boxH = 18;
+
+      var tries = [
+        { x: s.x + 11, y: s.y - boxH / 2 },                 // right
+        { x: s.x - 11 - boxW, y: s.y - boxH / 2 },          // left
+        { x: s.x - boxW / 2, y: s.y - 13 - boxH },          // above
+        { x: s.x - boxW / 2, y: s.y + 13 }                  // below
+      ];
+      var box = null;
+      for (var t = 0; t < tries.length; t++) {
+        var r = { x: tries[t].x, y: tries[t].y, w: boxW, h: boxH };
+        var infl = { x: r.x - 3, y: r.y - 3, w: r.w + 6, h: r.h + 6 };
+        var hit = false;
+        for (var i = 0; i < placed.length; i++) { if (rectsOverlap(infl, placed[i])) { hit = true; break; } }
+        if (!hit) { box = r; break; }
+      }
+      if (!box) { if (!c.selected) return; box = { x: s.x + 11, y: s.y - boxH / 2, w: boxW, h: boxH }; }
+      placed.push(box);
+
+      var cy = box.y + boxH / 2, tx = box.x + 5;
+      ctx.fillStyle = "rgba(8,12,20,0.82)";
+      self._roundRect(box.x, box.y, boxW, boxH, 5); ctx.fill();
+      if (c.chip) {
+        ctx.fillStyle = c.chip.color;
+        self._roundRect(tx, cy - 8, codeW, 16, 4); ctx.fill();
+        ctx.fillStyle = textOnHex(c.chip.color); ctx.font = CODE_FONT;
+        ctx.fillText(c.chip.code, tx + 4, cy + 0.5);
+        tx += codeW + gap;
+      }
+      ctx.font = NAME_FONT;
+      ctx.fillStyle = (c.selected || c.onRoute) ? "#ffffff" : "#d6deec";
+      ctx.fillText(s.name, tx, cy);
     });
   };
 

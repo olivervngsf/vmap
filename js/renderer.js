@@ -33,24 +33,42 @@ VMAP.Renderer = (function () {
   function clamp01(t) { return t < 0 ? 0 : t > 1 ? 1 : t; }
   var now = function () { return (window.performance && performance.now) ? performance.now() : Date.now(); };
 
-  // The map's left third is covered by the panel on desktop; bias framing right.
-  Renderer.prototype._leftInset = function () { return this.w > 820 ? 372 : 0; };
+  // The usable map area, in screen px, after subtracting the UI chrome:
+  // the floating panel on desktop, the bottom sheet on mobile. Camera framing
+  // centers content here so nothing ends up hidden behind the panel/sheet.
+  Renderer.prototype._viewRect = function () {
+    var w = this.w, h = this.h;
+    if (w > 880) {                       // desktop: floating panel, left ~16+372
+      var left = 16 + 372 + 24, m = 28;
+      return { x0: left, y0: m, x1: w - m, y1: h - m };
+    }
+    // mobile: bottom sheet (peek ~168px, or covers most when expanded)
+    var expanded = document.body.classList.contains("sheet-expanded");
+    var bottom = expanded ? Math.round(h * 0.82) : 172;
+    return { x0: 14, y0: 14, x1: w - 14, y1: h - bottom };
+  };
+  function rectInfo(r) {
+    return { cx: (r.x0 + r.x1) / 2, cy: (r.y0 + r.y1) / 2,
+             w: Math.max(60, r.x1 - r.x0), h: Math.max(60, r.y1 - r.y0) };
+  }
+  Renderer.prototype._applyCam = function (target) {
+    if (this.reduceMotion) { this.cam.scale = target.scale; this.cam.tx = target.tx; this.cam.ty = target.ty; this.camTarget = null; }
+    else this.camTarget = target;
+  };
 
   Renderer.prototype.pingEndpoint = function (which) { if (!this.reduceMotion) this._epAnim[which] = now(); };
   Renderer.prototype.animateRoute = function () { this._routeAnim = this.reduceMotion ? 0 : now(); };
   Renderer.prototype.clearAnims = function () { this._epAnim = {}; this._routeAnim = 0; this.camTarget = null; };
 
-  // Ease the camera to frame a world-space bounding box (respecting the panel).
-  Renderer.prototype.flyToBounds = function (minX, minY, maxX, maxY, pad) {
-    pad = pad == null ? 150 : pad;
-    var inset = this._leftInset();
-    var availW = this.w - inset - 40, availH = this.h - 40;
-    var sx = availW / (maxX - minX + pad * 2), sy = availH / (maxY - minY + pad * 2);
-    var scale = Math.max(0.3, Math.min(2.4, Math.min(sx, sy)));
-    var cx = inset + (this.w - inset) / 2, cy = this.h / 2;
-    var target = { scale: scale, tx: cx - (minX + maxX) / 2 * scale, ty: cy - (minY + maxY) / 2 * scale };
-    if (this.reduceMotion) { this.cam.scale = target.scale; this.cam.tx = target.tx; this.cam.ty = target.ty; this.camTarget = null; }
-    else this.camTarget = target;
+  // Ease the camera so a world-space box fits the usable area, with screen-px
+  // padding and a cap on how far it may zoom (so short trips keep context).
+  Renderer.prototype.flyToBounds = function (minX, minY, maxX, maxY, maxScale) {
+    var r = rectInfo(this._viewRect());
+    var pad = Math.max(34, Math.min(r.w, r.h) * 0.12);
+    var sx = (r.w - pad * 2) / Math.max(1, maxX - minX);
+    var sy = (r.h - pad * 2) / Math.max(1, maxY - minY);
+    var scale = Math.max(0.3, Math.min(maxScale || 2.4, Math.min(sx, sy)));
+    this._applyCam({ scale: scale, tx: r.cx - (minX + maxX) / 2 * scale, ty: r.cy - (minY + maxY) / 2 * scale });
   };
   Renderer.prototype.flyToRoute = function (pathIds) {
     if (!pathIds || pathIds.length < 2) return;
@@ -60,23 +78,22 @@ VMAP.Renderer = (function () {
       minX = Math.min(minX, s.x); maxX = Math.max(maxX, s.x);
       minY = Math.min(minY, s.y); maxY = Math.max(maxY, s.y);
     });
-    this.flyToBounds(minX, minY, maxX, maxY, 170);
-  };
-  // Zoom IN and center on a single station (when only the start is chosen).
-  Renderer.prototype.flyToStation = function (s) {
-    if (!s) return;
-    var inset = this._leftInset(), availW = this.w - inset - 40;
-    var scale = Math.max(1.2, Math.min(2.2, availW / 520));   // show A + some context
-    var cx = inset + (this.w - inset) / 2, cy = this.h / 2;
-    var target = { scale: scale, tx: cx - s.x * scale, ty: cy - s.y * scale };
-    if (this.reduceMotion) { this.cam.scale = target.scale; this.cam.tx = target.tx; this.cam.ty = target.ty; this.camTarget = null; }
-    else this.camTarget = target;
+    this.flyToBounds(minX, minY, maxX, maxY, 1.6);   // cap so a 2-stop trip keeps context
   };
   // Zoom OUT to frame both endpoints (the moment B is chosen, before results).
   Renderer.prototype.flyToEndpoints = function (aId, bId) {
     var a = this.net.stationsById[aId], b = this.net.stationsById[bId];
     if (!a || !b) return;
-    this.flyToBounds(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.max(a.x, b.x), Math.max(a.y, b.y), 180);
+    this.flyToBounds(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.max(a.x, b.x), Math.max(a.y, b.y), 1.6);
+  };
+  // Zoom IN and center on a single station (when only the start is chosen).
+  // Detail zoom is tighter on small screens and gentler on large ones (so a big
+  // display shows more context instead of giant labels), then clamped.
+  Renderer.prototype.flyToStation = function (s) {
+    if (!s) return;
+    var r = rectInfo(this._viewRect());
+    var scale = Math.max(1.3, Math.min(2.0, 1100 / Math.min(r.w, r.h)));
+    this._applyCam({ scale: scale, tx: r.cx - s.x * scale, ty: r.cy - s.y * scale });
   };
 
   Renderer.prototype.resize = function () {

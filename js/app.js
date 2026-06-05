@@ -44,6 +44,7 @@
     updateFieldDots();
     if (which && view.endpoints[which]) renderer.pingEndpoint(which);
     if (view.endpoints.from && view.endpoints.to) {
+      if (isMobile()) peekSheet();     // drop the sheet so the route is visible on the map
       renderer.flyToEndpoints(view.endpoints.from, view.endpoints.to);  // zoom out to frame the trip
       planTrip();
     } else if (which && view.endpoints[which]) {
@@ -207,7 +208,10 @@
       onEndpointChosen(which);
     }
 
-    input.addEventListener("focus", function () { render(input.value === net._nameOf(view.endpoints[which]) ? "" : input.value); });
+    input.addEventListener("focus", function () {
+      if (isMobile()) expandSheet();   // lift the bottom sheet so the dropdown isn't off-screen
+      render(input.value === net._nameOf(view.endpoints[which]) ? "" : input.value);
+    });
     input.addEventListener("input", function () { view.endpoints[which] = null; render(input.value); });
     input.addEventListener("keydown", function (e) {
       var rows = list.querySelectorAll(".combo-item");

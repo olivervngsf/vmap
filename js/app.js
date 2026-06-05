@@ -9,20 +9,20 @@
 (function () {
   var net = VMAP.network;
   var canvas = document.getElementById("map");
-  var sim = new VMAP.Simulation(net);
-  var router = new VMAP.Router(net);
+  var sim = new VMAP.Simulation(net);             // provides line geometry to the renderer
+  var router = new VMAP.Router(net);              // offline fallback routing
   var renderer = new VMAP.Renderer(canvas, net, sim);
   renderer.fit();
 
   var view = {
     focusLine: null,
     hiddenLines: {},
-    selected: null,                 // { type:'station'|'vehicle', id }
+    selected: null,                 // { type:'station', id }
     endpoints: { from: null, to: null },
     route: null, routePath: null, routeSet: null,
-    firstDep: null                  // live next-train for the first leg
+    firstDep: null                  // live next-train for the first leg (offline fallback)
   };
-  var state = { paused: false, speed: 5, liveEnabled: null };
+  var state = { liveEnabled: null };
   var depCache = {};                // stationId -> { state, ts, time, list, error }
 
   /* ---------- helpers ---------- */
@@ -115,33 +115,173 @@
   function rideMinutes(step) { return Math.max(2, Math.round(step.stops * 2.1)); }
   var TRANSFER_MIN = 4;
 
+  function itinBox() { return document.getElementById("itinerary"); }
+
   function planTrip() {
     var f = view.endpoints.from, t = view.endpoints.to;
-    var box = document.getElementById("itinerary");
-    view.firstDep = null;
-    function fail(msg) { box.innerHTML = '<p class="no-route">' + msg + "</p>"; clearRouteHighlight(); setPlanCollapsed(false); updatePlanHeader(); }
+    view.firstDep = null; view.tripOptions = null; view.firstLegLive = null;
+    function fail(msg) { itinBox().innerHTML = '<p class="no-route">' + msg + "</p>"; clearRouteHighlight(); setPlanCollapsed(false); updatePlanHeader(); }
     if (!f || !t) { fail("Pick a start and destination to see directions."); return; }
     if (f === t) { fail("Start and destination are the same station."); return; }
+    updatePlanHeader();
+    setPlanCollapsed(true);
+
+    if (state.liveEnabled === false) { localPlan(f, t); return; }
+    itinBox().innerHTML = '<p class="loading">Finding trips…</p>';
+    VMAP.live.tripPlan(f, t).then(function (res) {
+      if (f !== view.endpoints.from || t !== view.endpoints.to) return;   // stale
+      if (!res.options || !res.options.length) { localPlan(f, t); return; }
+      setLiveStatus(true);
+      view.tripOptions = res.options;
+      view.selectedOption = 0;
+      highlightOption(0);
+      renderOptions();
+      fetchFirstLegLive();
+    }).catch(function () { localPlan(f, t); });
+  }
+
+  // Offline fallback: our own shortest-path over the static network.
+  function localPlan(f, t) {
     var plan = router.plan(f, t);
     view.route = plan;
-    if (!plan) { fail("No route found."); return; }
-    view.routePath = plan.path;
-    view.routeSet = {};
+    if (!plan) { itinBox().innerHTML = '<p class="no-route">No route found.</p>'; clearRouteHighlight(); return; }
+    view.routePath = plan.path; view.routeSet = {};
     plan.path.forEach(function (id) { view.routeSet[id] = true; });
     renderItinerary();
-    fetchFirstDeparture(plan);   // live first-train, best-effort
-    updatePlanHeader();
-    setPlanCollapsed(true);      // fold the form away to spotlight the itinerary
+    fetchFirstDeparture(plan);
   }
-  function clearRouteHighlight() { view.route = view.routePath = view.routeSet = null; }
+
+  function clearRouteHighlight() { view.route = view.routePath = view.routeSet = null; view.tripOptions = null; }
   function clearTrip() {
     view.endpoints.from = view.endpoints.to = null;
-    view.firstDep = null;
+    view.firstDep = null; view.firstLegLive = null;
     clearRouteHighlight();
     syncSelects();
-    document.getElementById("itinerary").innerHTML = '<p class="no-route">Pick a start and destination to see directions.</p>';
+    itinBox().innerHTML = '<p class="no-route">Pick a start and destination to see directions.</p>';
     updatePlanHeader();
     setPlanCollapsed(false);
+  }
+
+  /* ---------- live multi-option results (bart.gov style + Apple-Maps steps) ---------- */
+  function stopCount(aAbbr, bAbbr) {
+    for (var k = 0; k < net.lines.length; k++) {
+      var st = net.lines[k].stations, ia = st.indexOf(aAbbr), ib = st.indexOf(bAbbr);
+      if (ia >= 0 && ib >= 0) return Math.abs(ib - ia);
+    }
+    return null;
+  }
+  function legPath(aAbbr, bAbbr) {
+    for (var k = 0; k < net.lines.length; k++) {
+      var st = net.lines[k].stations, ia = st.indexOf(aAbbr), ib = st.indexOf(bAbbr);
+      if (ia >= 0 && ib >= 0) {
+        var out = [], step = ia <= ib ? 1 : -1;
+        for (var j = ia; j !== ib + step; j += step) out.push(st[j]);
+        return out;
+      }
+    }
+    return [aAbbr, bAbbr];
+  }
+  function optionPath(o) {
+    var path = [];
+    o.legs.forEach(function (l) {
+      var p = legPath(l.origin, l.dest);
+      if (path.length && p[0] === path[path.length - 1]) p = p.slice(1);
+      path = path.concat(p);
+    });
+    return path;
+  }
+  function highlightOption(i) {
+    var o = view.tripOptions[i]; if (!o) return;
+    var path = optionPath(o);
+    view.route = { live: true }; view.routePath = path; view.routeSet = {};
+    path.forEach(function (id) { view.routeSet[id] = true; });
+  }
+  function nm(abbr) { var s = net.stationsById[abbr]; return s ? s.name : abbr; }
+
+  function advisoriesHTML() {
+    if (!view.advisories || !view.advisories.length) return "";
+    return '<div class="alert-banner"><span class="alert-ico">⚠</span><div>' +
+      view.advisories.map(function (a) { return a; }).join("<br>") + "</div></div>";
+  }
+
+  function renderOptions() {
+    var opts = view.tripOptions;
+    if (!opts) return;
+    var html = advisoriesHTML();
+    opts.forEach(function (o, i) { html += optionCardHTML(o, i, i === view.selectedOption); });
+    var box = itinBox();
+    box.innerHTML = html;
+    box.querySelectorAll(".opt").forEach(function (el) {
+      el.addEventListener("click", function () {
+        var i = +el.dataset.i;
+        if (i === view.selectedOption) return;
+        view.selectedOption = i; view.firstLegLive = null;
+        highlightOption(i); renderOptions(); fetchFirstLegLive();
+      });
+    });
+  }
+
+  function optionCardHTML(o, i, expanded) {
+    var pips = o.legs.map(function (l) {
+      return '<span class="pip" style="background:' + l.color + '"></span>';
+    }).join('<span class="pip-sep"></span>');
+    var sub = (o.durationMin ? o.durationMin + " min" : "") +
+      " · " + o.transfers + " transfer" + (o.transfers === 1 ? "" : "s");
+    var head =
+      '<div class="opt-top"><span class="opt-time">' + o.depart + " → " + o.arrive + "</span>" +
+      (o.fare ? '<span class="opt-fare">$' + o.fare + "</span>" : "") + "</div>" +
+      '<div class="opt-sub"><span>' + sub + '</span><span class="opt-pips">' + pips + "</span></div>";
+    return '<div class="opt' + (expanded ? " open" : "") + '" data-i="' + i + '">' +
+      head + (expanded ? '<div class="opt-steps">' + optionStepsHTML(o) + "</div>" : "") + "</div>";
+  }
+
+  function optionStepsHTML(o) {
+    var html = stepHTML("var(--green)", "Start", "<b>" + nm(o.legs[0].origin) + "</b>", o.legs[0].color, false);
+    o.legs.forEach(function (l, j) {
+      var stops = stopCount(l.origin, l.dest);
+      var live = "";
+      if (j === 0 && view.firstLegLive) {
+        var fl = view.firstLegLive;
+        live = (fl.platform ? '<br>Platform <b>' + fl.platform + "</b>" : "") +
+          (fl.minutes != null ? ' · <span class="live">' + (fl.minutes === 0 ? "leaving now" : "live in " + fl.minutes + " min") + "</span>" : "");
+      }
+      var action =
+        'Board <span class="pill" style="background:' + l.color + '">' + l.line + "</span> " +
+        "toward " + nm(l.headAbbr) +
+        "<br>" + (stops != null ? "ride " + stops + " stop" + (stops === 1 ? "" : "s") + " · " : "") +
+        l.depart + " – " + l.arrive + live +
+        '<br><span class="step-alight">↓ exit at <b>' + nm(l.dest) + "</b></span>";
+      html += stepHTML(l.color, nm(l.origin), action, l.color, false);
+      if (j < o.legs.length - 1) {
+        html += stepHTML("var(--amber)", nm(l.dest),
+          "Transfer to your next train", "#9aa6bd", false);
+      }
+    });
+    var lastLeg = o.legs[o.legs.length - 1];
+    html += stepHTML("var(--red)", "Arrive", "<b>" + nm(lastLeg.dest) + "</b>", "#ff6b6b", true);
+    return html;
+  }
+
+  // Real-time overlay for the first leg: platform + live minutes from ETD.
+  function fetchFirstLegLive() {
+    var o = view.tripOptions && view.tripOptions[view.selectedOption];
+    if (!o) return;
+    var leg = o.legs[0];
+    VMAP.live.departures(leg.origin).then(function (res) {
+      var match = null;
+      res.list.forEach(function (d) {
+        if (d.destAbbr === leg.headAbbr && d.minutes != null && (!match || d.minutes < match.minutes)) match = d;
+      });
+      view.firstLegLive = match ? { platform: match.platform, minutes: match.minutes } : null;
+      if (view.tripOptions) renderOptions();
+    }).catch(function () {});
+  }
+
+  function loadAdvisories() {
+    VMAP.live.advisories().then(function (list) {
+      view.advisories = list;
+      if (view.tripOptions) renderOptions();
+    }).catch(function () {});
   }
 
   function fetchFirstDeparture(plan) {
@@ -249,9 +389,7 @@
     expandSheet();
   }
   function renderDetail() {
-    if (!view.selected) return;
-    if (view.selected.type === "station") renderStationInspector(view.selected.id);
-    else renderVehicleInspector(view.selected.id);
+    if (view.selected && view.selected.type === "station") renderStationInspector(view.selected.id);
   }
 
   // fetch real-time departures into the cache (throttled), then re-render
@@ -338,22 +476,6 @@
       '<span class="dep-meta">' + meta + late + "</span></span>" + mins + "</div>";
   }
 
-  function renderVehicleInspector(vid) {
-    var v = null;
-    for (var i = 0; i < sim.vehicles.length; i++) if (sim.vehicles[i].id === vid) { v = sim.vehicles[i]; break; }
-    if (!v) { view.selected = null; showView(lastTab); return; }
-    var line = net.linesById[v.lineId];
-    detailBody.innerHTML =
-      '<span class="insp-tag">Train · schematic</span>' +
-      '<h2 class="insp-title">' + lineShort(line) + "</h2>" +
-      '<p class="insp-sub">' + line.name + "</p>" +
-      '<div class="chips"><span class="chip" style="background:' + line.color + '">toward ' + sim.headsign(v) + "</span></div>" +
-      '<div class="section-h">Heading to</div>' +
-      '<p style="font-size:14px;font-weight:600;margin:0 0 10px;">' + stationName(sim.nextStop(v)) + "</p>" +
-      '<div class="schematic-note">Train positions here are a schematic animation — BART\'s public API doesn\'t broadcast live train locations. ' +
-      "For real-time predictions, click a <b>station</b> to see its live departures board.</div>";
-  }
-
   /* ---------- live status ---------- */
   function setLiveStatus(ok) {
     state.liveEnabled = ok;
@@ -361,11 +483,11 @@
     el.classList.toggle("ok", ok);
     el.classList.toggle("off", !ok);
     el.textContent = ok ? "live" : "offline";
-    el.title = ok ? "Real-time BART departures" : "Deploy to enable real-time data";
+    el.title = ok ? "Real-time BART data" : "Deploy to enable real-time data";
   }
   function probeLive() {
     VMAP.live.departures("POWL")
-      .then(function () { setLiveStatus(true); })
+      .then(function () { setLiveStatus(true); loadAdvisories(); })
       .catch(function () { setLiveStatus(false); });
   }
 
@@ -501,20 +623,8 @@
 
   document.getElementById("stat-stations").textContent = net.stations.length;
 
-  /* ---------- main loop ---------- */
-  var last = performance.now();
-  var uiAccum = 0;
-  function frame(now) {
-    var dt = (now - last) / 1000; last = now;
-    sim.update(Math.min(dt, 0.1) * state.speed);
-    renderer.draw(view);
-    uiAccum += dt;
-    if (uiAccum > 0.25) {            // keep the live train detail fresh
-      uiAccum = 0;
-      if (view.selected && view.selected.type === "vehicle") renderDetail();
-    }
-    requestAnimationFrame(frame);
-  }
+  /* ---------- render loop (static map; redraws for pan/zoom) ---------- */
+  function frame() { renderer.draw(view); requestAnimationFrame(frame); }
 
   buildLegend();
   buildSelects();

@@ -285,6 +285,37 @@ html, body {
 .transfer-note { color: var(--amber); }
 .no-route { font-size: 13px; color: var(--tertiary); padding: 10px 0; }
 
+/* multi-option results (bart.gov style) */
+.opt {
+  background: var(--fill);
+  border: 1px solid transparent;
+  border-radius: 14px;
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.opt:hover { background: var(--fill-strong); }
+.opt.open { background: var(--fill-strong); border-color: var(--hairline); cursor: default; }
+.opt-top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.opt-time { font-size: 15px; font-weight: 700; letter-spacing: -0.2px; }
+.opt-fare { font-size: 14px; font-weight: 700; color: var(--green); flex: 0 0 auto; }
+.opt-sub { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 6px; font-size: 12px; color: var(--secondary); }
+.opt-pips { display: flex; align-items: center; }
+.pip { width: 20px; height: 6px; border-radius: 3px; display: inline-block; }
+.pip-sep { width: 4px; }
+.opt-steps { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--hairline); }
+
+.alert-banner {
+  display: flex; gap: 9px; align-items: flex-start;
+  background: rgba(255, 214, 10, 0.12);
+  border: 1px solid rgba(255, 214, 10, 0.30);
+  color: #ffe08a;
+  border-radius: 12px; padding: 10px 12px;
+  font-size: 12px; line-height: 1.45; margin-bottom: 12px;
+}
+.alert-ico { flex: 0 0 auto; }
+
 /* ============================================================
    Lines view
    ============================================================ */

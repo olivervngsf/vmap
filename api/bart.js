@@ -6,13 +6,21 @@
  * servers can reach BART, inject the key from an env var (falling back to
  * BART's public demo key), and return JSON with permissive CORS.
  *
- * Query: ?type=etd|stns|routes|routeinfo  (+ orig=ABBR for etd, route=N for routeinfo)
+ * Query:
+ *   ?type=etd&orig=ABBR        real-time departures (ABBR or ALL)
+ *   ?type=sched&orig=X&dest=Y  trip planner: multiple departures + fares + legs
+ *   ?type=fare&orig=X&dest=Y   fare between two stations
+ *   ?type=bsa                  service advisories
+ *   ?type=routes               line list + colors
  */
 const ENDPOINTS = {
   etd:       { path: "etd.aspx",   base: { cmd: "etd" },       q: { orig: "orig" } },
   stns:      { path: "stns.aspx",  base: { cmd: "stns" },      q: {} },
   routes:    { path: "route.aspx", base: { cmd: "routes" },    q: {} },
   routeinfo: { path: "route.aspx", base: { cmd: "routeinfo" }, q: { route: "route" } },
+  sched:     { path: "sched.aspx", base: { cmd: "depart", date: "now", b: "0", a: "4", l: "1" }, q: { orig: "orig", dest: "dest", date: "date", time: "time" } },
+  fare:      { path: "sched.aspx", base: { cmd: "fare", date: "now" }, q: { orig: "orig", dest: "dest" } },
+  bsa:       { path: "bsa.aspx",   base: { cmd: "bsa" },       q: {} },
 };
 
 module.exports = async function handler(req, res) {

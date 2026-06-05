@@ -84,7 +84,6 @@ VMAP.Renderer = (function () {
     this._drawRoutes(view);
     if (view.routePath && view.routePath.length > 1) this._drawRouteHalo(view.routePath);
     this._drawStations(view);
-    this._drawVehicles(view);
     this._drawLabels(view);
     this._drawEndpoints(view);
 
@@ -244,40 +243,60 @@ VMAP.Renderer = (function () {
     };
   };
 
+  // Draw one train marker (rounded rect + direction nose) at a world pose.
+  Renderer.prototype._trainMarker = function (pose, color, selected) {
+    var ctx = this.ctx, minPx = 6;
+    var halfLen = Math.max(11, minPx / this.cam.scale);
+    var halfWid = Math.max(7, (minPx * 0.66) / this.cam.scale);
+    ctx.save();
+    ctx.translate(pose.x, pose.y);
+    ctx.rotate(pose.angle);
+    if (selected) { ctx.shadowColor = "rgba(255,255,255,0.9)"; ctx.shadowBlur = 16; }
+    this._roundRect(-halfLen, -halfWid, halfLen * 2, halfWid * 2, halfWid * 0.6);
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.lineWidth = 1.6;
+    ctx.strokeStyle = "rgba(255,255,255,0.92)";
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(halfLen * 0.55, 0, halfWid * 0.35, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(255,255,255,0.9)";
+    ctx.fill();
+    ctx.restore();
+  };
+
   Renderer.prototype._drawVehicles = function (view) {
-    var ctx = this.ctx, self = this;
-    var minPx = 6;   // keep visible when zoomed out
+    var self = this;
     this.sim.vehicles.forEach(function (v) {
       if (!self._lineVisible(v.lineId, view)) return;
       if (view.focusLine && view.focusLine !== v.lineId) return;
-      var pose = self.vehicleWorldPose(v);
       var selected = view.selected && view.selected.type === "vehicle" && view.selected.id === v.id;
+      self._trainMarker(self.vehicleWorldPose(v), v.color, selected);
+    });
+  };
 
-      var halfLen = Math.max(11, minPx / self.cam.scale);
-      var halfWid = Math.max(7, (minPx * 0.66) / self.cam.scale);
+  // World pose of a live train along its fromId->toId segment (offset rail).
+  Renderer.prototype.liveTrainPose = function (mgr, t) {
+    var a = this.net.stationsById[t.fromId], b = this.net.stationsById[t.toId];
+    var f = mgr.frac(t);
+    var off = this._segOffset(t.lineId, t.fromId, t.toId);
+    var ca = off.canonicalAB ? a : b, cb = off.canonicalAB ? b : a;
+    var dx = cb.x - ca.x, dy = cb.y - ca.y, len = Math.hypot(dx, dy) || 1;
+    return {
+      x: a.x + (b.x - a.x) * f + (-dy / len) * off.o,
+      y: a.y + (b.y - a.y) * f + (dx / len) * off.o,
+      angle: Math.atan2(b.y - a.y, b.x - a.x)
+    };
+  };
 
-      ctx.save();
-      ctx.translate(pose.x, pose.y);
-      ctx.rotate(pose.angle);
-
-      if (selected) {
-        ctx.shadowColor = "rgba(255,255,255,0.9)";
-        ctx.shadowBlur = 16;
-      }
-      self._roundRect(-halfLen, -halfWid, halfLen * 2, halfWid * 2, halfWid * 0.6);
-      ctx.fillStyle = v.color;
-      ctx.fill();
-      ctx.shadowBlur = 0;
-      ctx.lineWidth = 1.6;
-      ctx.strokeStyle = "rgba(255,255,255,0.92)";
-      ctx.stroke();
-
-      // nose marker for direction
-      ctx.beginPath();
-      ctx.arc(halfLen * 0.55, 0, halfWid * 0.35, 0, Math.PI * 2);
-      ctx.fillStyle = "rgba(255,255,255,0.9)";
-      ctx.fill();
-      ctx.restore();
+  Renderer.prototype._drawLiveTrains = function (view) {
+    var self = this, mgr = view.liveManager;
+    mgr.trains.forEach(function (t) {
+      if (!self._lineVisible(t.lineId, view)) return;
+      if (view.focusLine && view.focusLine !== t.lineId) return;
+      var selected = view.selected && view.selected.type === "train" && view.selected.id === t.key;
+      self._trainMarker(self.liveTrainPose(mgr, t), t.color, selected);
     });
   };
 
@@ -338,18 +357,7 @@ VMAP.Renderer = (function () {
   /* ---- picking (screen space) ---- */
   Renderer.prototype.pick = function (sx, sy, view) {
     var self = this;
-    // vehicles first (smaller, on top)
-    var best = null, bestD = 16;
-    this.sim.vehicles.forEach(function (v) {
-      if (!self._lineVisible(v.lineId, view)) return;
-      if (view.focusLine && view.focusLine !== v.lineId) return;
-      var sp = self.worldToScreen(self.vehicleWorldPose(v));
-      var d = Math.hypot(sp.x - sx, sp.y - sy);
-      if (d < bestD) { bestD = d; best = { type: "vehicle", id: v.id }; }
-    });
-    if (best) return best;
-
-    bestD = 18;
+    var best = null, bestD = 18;
     this.net.stations.forEach(function (s) {
       var anyVisible = s.lines.some(function (l) { return self._lineVisible(l, view); });
       if (!anyVisible) return;

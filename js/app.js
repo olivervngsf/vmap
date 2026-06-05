@@ -29,21 +29,26 @@
   function stationName(id) { return net.stationsById[id].name; }
   function lineShort(line) { return line.colorKey.charAt(0).toUpperCase() + line.colorKey.slice(1) + " Line"; }
 
-  // collapse/expand the trip form (From/To inputs) within the Plan view
-  function setPlanCollapsed(collapsed) {
-    document.getElementById("view-plan").classList.toggle("form-collapsed", collapsed);
-    document.getElementById("plan-toggle").setAttribute("aria-expanded", String(!collapsed));
+  // Reflect which endpoints are set on the A/B field dots (lit when chosen).
+  function updateFieldDots() {
+    var a = document.querySelector("#from-combo .field-dot");
+    var b = document.querySelector("#to-combo .field-dot");
+    if (a) a.classList.toggle("set", !!view.endpoints.from);
+    if (b) b.classList.toggle("set", !!view.endpoints.to);
   }
-  function updatePlanHeader() {
-    var el = document.getElementById("plan-summary");
-    if (view.route && view.endpoints.from && view.endpoints.to) {
-      el.innerHTML =
-        '<span class="sum-dot" style="background:var(--green)"></span>' + stationName(view.endpoints.from) +
-        '<span class="sum-arrow">→</span>' +
-        '<span class="sum-dot" style="background:var(--red)"></span>' + stationName(view.endpoints.to);
-    } else {
-      el.textContent = "Plan a trip";
+
+  // An endpoint was just chosen (via search, map tap, or swap): give live map
+  // feedback — drop the pin, make sure it's on screen, and draw the route when
+  // both ends exist.
+  function onEndpointChosen(which) {
+    updateFieldDots();
+    if (which && view.endpoints[which]) {
+      renderer.pingEndpoint(which);
+      if (!(view.endpoints.from && view.endpoints.to)) {
+        renderer.ensureVisible(net.stationsById[view.endpoints[which]]);
+      }
     }
+    if (view.endpoints.from && view.endpoints.to) planTrip();
   }
 
   // index of a station within a line's ordered stop list
@@ -194,6 +199,7 @@
       view.endpoints[which] = abbr;
       input.value = s.name;
       close();
+      onEndpointChosen(which);
     }
 
     input.addEventListener("focus", function () { render(input.value === net._nameOf(view.endpoints[which]) ? "" : input.value); });
@@ -227,14 +233,22 @@
 
   function itinBox() { return document.getElementById("itinerary"); }
 
+  // Animate a freshly-established route onto the map: pins drop, line draws on,
+  // camera glides to frame the whole journey.
+  function revealRoute() {
+    if (!view.routePath || view.routePath.length < 2) return;
+    renderer.pingEndpoint("from"); renderer.pingEndpoint("to");
+    renderer.animateRoute();
+    renderer.flyToRoute(view.routePath);
+  }
+
   function planTrip() {
     var f = view.endpoints.from, t = view.endpoints.to;
     view.firstDep = null; view.tripOptions = null; view.firstLegLive = null;
-    function fail(msg) { itinBox().innerHTML = '<p class="no-route">' + msg + "</p>"; clearRouteHighlight(); setPlanCollapsed(false); updatePlanHeader(); }
+    function fail(msg) { itinBox().innerHTML = '<p class="no-route">' + msg + "</p>"; clearRouteHighlight(); }
     if (!f || !t) { fail("Pick a start and destination to see directions."); return; }
     if (f === t) { fail("Start and destination are the same station."); return; }
-    updatePlanHeader();
-    setPlanCollapsed(true);
+    updateFieldDots();
 
     if (state.liveEnabled === false) { localPlan(f, t); return; }
     itinBox().innerHTML = '<p class="loading">Finding trips…</p>';
@@ -244,7 +258,7 @@
       setLiveStatus(true);
       view.tripOptions = res.options;
       view.selectedOption = 0;
-      highlightOption(0);
+      highlightOption(0, true);
       renderOptions();
       fetchFirstLegLive();
     }).catch(function () { localPlan(f, t); });
@@ -258,6 +272,7 @@
     view.routePath = plan.path; view.routeSet = {};
     plan.path.forEach(function (id) { view.routeSet[id] = true; });
     renderItinerary();
+    revealRoute();
     fetchFirstDeparture(plan);
   }
 
@@ -266,10 +281,10 @@
     view.endpoints.from = view.endpoints.to = null;
     view.firstDep = null; view.firstLegLive = null;
     clearRouteHighlight();
+    renderer.clearAnims();
     syncInputs();
+    updateFieldDots();
     itinBox().innerHTML = '<p class="no-route">Pick a start and destination to see directions.</p>';
-    updatePlanHeader();
-    setPlanCollapsed(false);
   }
 
   /* ---------- live multi-option results (bart.gov style + Apple-Maps steps) ---------- */
@@ -300,11 +315,12 @@
     });
     return path;
   }
-  function highlightOption(i) {
+  function highlightOption(i, fly) {
     var o = view.tripOptions[i]; if (!o) return;
     var path = optionPath(o);
     view.route = { live: true }; view.routePath = path; view.routeSet = {};
     path.forEach(function (id) { view.routeSet[id] = true; });
+    if (fly) revealRoute(); else renderer.animateRoute();
   }
   function nm(abbr) { var s = net.stationsById[abbr]; return s ? s.name : abbr; }
 
@@ -570,7 +586,7 @@
         view.endpoints[which] = id;
         if (which === "from" && view.endpoints.to === id) view.endpoints.to = null;
         if (which === "to" && view.endpoints.from === id) view.endpoints.from = null;
-        syncInputs(); planTrip();
+        syncInputs(); onEndpointChosen(which);
         // once both ends are chosen, jump to the Plan view to show directions
         if (view.endpoints.from && view.endpoints.to) { view.selected = null; showView("plan"); expandSheet(); }
         else renderStationInspector(id);
@@ -679,11 +695,6 @@
     view.selected = null; showView(lastTab);
   });
 
-  // collapse / expand the trip form
-  document.getElementById("plan-toggle").addEventListener("click", function () {
-    setPlanCollapsed(!document.getElementById("view-plan").classList.contains("form-collapsed"));
-  });
-
   // desktop collapse / reopen
   var reopen = document.getElementById("panel-reopen");
   document.getElementById("panel-collapse").addEventListener("click", function () {
@@ -717,7 +728,10 @@
   document.getElementById("btn-clear-route").addEventListener("click", clearTrip);
   document.getElementById("btn-swap").addEventListener("click", function () {
     var f = view.endpoints.from; view.endpoints.from = view.endpoints.to; view.endpoints.to = f;
-    syncInputs(); planTrip();
+    var sw = document.getElementById("btn-swap");
+    sw.classList.remove("spin"); void sw.offsetWidth; sw.classList.add("spin");  // replay spin
+    syncInputs(); updateFieldDots();
+    if (view.endpoints.from && view.endpoints.to) planTrip();
   });
 
   document.addEventListener("keydown", function (e) {

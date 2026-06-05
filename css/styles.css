@@ -149,43 +149,23 @@ html, body {
   -webkit-overflow-scrolling: touch;
   padding: 12px 16px calc(18px + var(--safe-b));
 }
-.view { animation: fade 0.22s ease; }
-@keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+.view { animation: fade 0.3s cubic-bezier(0.22,1,0.36,1); }
+@keyframes fade { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+
+/* combobox dropdown: gentle pop-in */
+.combo { position: relative; }
+.combo:focus-within { z-index: 50; }   /* keep the open list above the swap button */
+.combo-list:not(.hidden) { animation: comboIn 0.18s cubic-bezier(0.22,1,0.36,1); transform-origin: top center; }
+@keyframes comboIn { from { opacity: 0; transform: translateY(-8px) scale(0.98); } to { opacity: 1; transform: none; } }
+.combo-item { transition: background 0.13s ease; }
 
 .hint-text { font-size: 12px; color: var(--tertiary); margin: 0 0 12px; line-height: 1.45; }
 
-/* collapsible "Plan a trip" form */
-.disclosure {
-  display: flex; align-items: center; justify-content: space-between; gap: 10px;
-  width: 100%;
-  background: var(--fill);
-  border: none; color: var(--label);
-  border-radius: var(--radius-sm);
-  padding: 12px 14px;
-  font-size: 15px; font-weight: 600;
-  cursor: pointer;
-  margin-bottom: 12px;
-  transition: background 0.15s;
-}
-.disclosure:hover { background: var(--fill-strong); }
-.disclosure #plan-summary {
-  display: flex; align-items: center; gap: 7px; min-width: 0;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.disclosure .chev { color: var(--secondary); flex: 0 0 auto; transition: transform 0.28s cubic-bezier(0.32,0.72,0,1); }
-#view-plan.form-collapsed .disclosure .chev { transform: rotate(-90deg); }
-.sum-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
-.sum-arrow { color: var(--tertiary); margin: 0 2px; }
-
-#plan-form {
-  overflow: hidden;
-  max-height: 520px;
-  opacity: 1;
-  transition: max-height 0.32s cubic-bezier(0.32,0.72,0,1), opacity 0.22s ease, margin 0.32s ease;
-}
-#view-plan.form-collapsed #plan-form {
-  max-height: 0; opacity: 0; margin: 0; pointer-events: none;
-}
+/* the two trip inputs are always visible now — give them a gentle entrance */
+#plan-form { animation: rise 0.4s cubic-bezier(0.22,1,0.36,1) both; }
+#from-combo { animation: rise 0.42s cubic-bezier(0.22,1,0.36,1) both; animation-delay: 0.04s; }
+#to-combo { animation: rise 0.42s cubic-bezier(0.22,1,0.36,1) both; animation-delay: 0.11s; }
 
 /* ============================================================
    Plan view — fields & buttons
@@ -198,7 +178,13 @@ html, body {
   padding: 0 12px;
   margin-bottom: 8px;
 }
-.field-dot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; margin-right: 10px; }
+.field-dot {
+  width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; margin-right: 10px;
+  transition: transform 0.32s cubic-bezier(0.22,1,0.36,1), box-shadow 0.32s ease;
+}
+.field-dot.set { transform: scale(1.3); }
+.dot-a.set { box-shadow: 0 0 0 4px rgba(90,209,122,0.22); }
+.dot-b.set { box-shadow: 0 0 0 4px rgba(255,107,107,0.22); }
 .dot-a { background: var(--green); }
 .dot-b { background: var(--red); }
 .field select {
@@ -226,8 +212,12 @@ html, body {
   background: var(--panel-solid);
   border: 1px solid var(--hairline);
   color: var(--accent); cursor: pointer;
+  transition: background 0.15s ease, transform 0.18s ease;
 }
-.swap:hover { background: var(--fill-strong); }
+.swap:hover { background: var(--fill-strong); transform: scale(1.08); }
+.swap:active { transform: scale(0.94); }
+.swap.spin { animation: swapSpin 0.45s cubic-bezier(0.22,1,0.36,1); }
+@keyframes swapSpin { from { transform: rotate(0); } to { transform: rotate(180deg); } }
 
 .plan-actions { display: flex; gap: 8px; margin: 12px 0 4px; }
 .btn-primary {
@@ -293,10 +283,18 @@ html, body {
   padding: 12px 14px;
   margin-bottom: 10px;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background 0.15s, transform 0.15s ease, border-color 0.2s ease;
+  animation: rise 0.36s cubic-bezier(0.22,1,0.36,1) both;
 }
-.opt:hover { background: var(--fill-strong); }
-.opt.open { background: var(--fill-strong); border-color: var(--hairline); cursor: default; }
+.opt:nth-child(1) { animation-delay: 0.02s; }
+.opt:nth-child(2) { animation-delay: 0.07s; }
+.opt:nth-child(3) { animation-delay: 0.12s; }
+.opt:nth-child(4) { animation-delay: 0.17s; }
+.opt:nth-child(5) { animation-delay: 0.22s; }
+.opt:nth-child(n+6) { animation-delay: 0.26s; }
+.opt:hover { background: var(--fill-strong); transform: translateY(-1px); }
+.opt.open { background: var(--fill-strong); border-color: var(--hairline); cursor: default; transform: none; }
+.opt.open .opt-steps { animation: rise 0.32s cubic-bezier(0.22,1,0.36,1) both; }
 .opt-top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
 .opt-time { font-size: 15px; font-weight: 700; letter-spacing: -0.2px; }
 .opt-fare { font-size: 14px; font-weight: 700; color: var(--green); flex: 0 0 auto; }
@@ -466,4 +464,16 @@ html, body {
   body.sheet-expanded #mapctrls { opacity: 0; pointer-events: none; transition: opacity 0.25s; }
 
   .field select { font-size: 16px; }          /* avoid iOS input zoom */
+}
+
+/* ============================================================
+   Inclusive motion — honor the OS "reduce motion" preference
+   ============================================================ */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
 }

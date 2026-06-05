@@ -17,9 +17,59 @@ VMAP.Renderer = (function () {
     this.sim = sim;
     this.dpr = window.devicePixelRatio || 1;
     this.cam = { scale: 1, tx: 0, ty: 0 };
+    this.camTarget = null;          // {scale,tx,ty} the camera eases toward
+    this._epAnim = {};              // which -> t0 (endpoint drop-in start)
+    this._routeAnim = 0;            // t0 of the route draw-on reveal
+    // honor the OS "reduce motion" setting — keep feedback, drop the animation
+    this.reduceMotion = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
     this._buildSegMap();
     this.resize();
   }
+
+  /* ---- easing + motion ---- */
+  function easeOutCubic(t) { return 1 - Math.pow(1 - t, 3); }
+  function easeInOutCubic(t) { return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; }
+  function easeOutBack(t) { var c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2); }
+  function clamp01(t) { return t < 0 ? 0 : t > 1 ? 1 : t; }
+  var now = function () { return (window.performance && performance.now) ? performance.now() : Date.now(); };
+
+  // The map's left third is covered by the panel on desktop; bias framing right.
+  Renderer.prototype._leftInset = function () { return this.w > 820 ? 372 : 0; };
+
+  Renderer.prototype.pingEndpoint = function (which) { if (!this.reduceMotion) this._epAnim[which] = now(); };
+  Renderer.prototype.animateRoute = function () { this._routeAnim = this.reduceMotion ? 0 : now(); };
+  Renderer.prototype.clearAnims = function () { this._epAnim = {}; this._routeAnim = 0; this.camTarget = null; };
+
+  // Ease the camera to frame a world-space bounding box (respecting the panel).
+  Renderer.prototype.flyToBounds = function (minX, minY, maxX, maxY, pad) {
+    pad = pad == null ? 150 : pad;
+    var inset = this._leftInset();
+    var availW = this.w - inset - 40, availH = this.h - 40;
+    var sx = availW / (maxX - minX + pad * 2), sy = availH / (maxY - minY + pad * 2);
+    var scale = Math.max(0.3, Math.min(2.4, Math.min(sx, sy)));
+    var cx = inset + (this.w - inset) / 2, cy = this.h / 2;
+    var target = { scale: scale, tx: cx - (minX + maxX) / 2 * scale, ty: cy - (minY + maxY) / 2 * scale };
+    if (this.reduceMotion) { this.cam.scale = target.scale; this.cam.tx = target.tx; this.cam.ty = target.ty; this.camTarget = null; }
+    else this.camTarget = target;
+  };
+  Renderer.prototype.flyToRoute = function (pathIds) {
+    if (!pathIds || pathIds.length < 2) return;
+    var net = this.net, minX = 1e9, minY = 1e9, maxX = -1e9, maxY = -1e9;
+    pathIds.forEach(function (id) {
+      var s = net.stationsById[id]; if (!s) return;
+      minX = Math.min(minX, s.x); maxX = Math.max(maxX, s.x);
+      minY = Math.min(minY, s.y); maxY = Math.max(maxY, s.y);
+    });
+    this.flyToBounds(minX, minY, maxX, maxY, 170);
+  };
+  // Gently pan a station into view only if it's hidden behind the panel/edges.
+  Renderer.prototype.ensureVisible = function (s) {
+    if (!s) return;
+    var sp = this.worldToScreen(s), inset = this._leftInset(), m = 90;
+    if (sp.x > inset + m && sp.x < this.w - m && sp.y > m && sp.y < this.h - m) return;
+    var cx = inset + (this.w - inset) / 2, cy = this.h / 2;
+    this.camTarget = { scale: this.cam.scale, tx: cx - s.x * this.cam.scale, ty: cy - s.y * this.cam.scale };
+  };
 
   Renderer.prototype.resize = function () {
     // The canvas is a full-viewport fixed element; measuring the window avoids
@@ -39,9 +89,11 @@ VMAP.Renderer = (function () {
   };
 
   Renderer.prototype.panBy = function (dx, dy) {
+    this.camTarget = null;          // user takes control
     this.cam.tx += dx; this.cam.ty += dy;
   };
   Renderer.prototype.zoomAt = function (sx, sy, factor) {
+    this.camTarget = null;
     var before = this.screenToWorld({ x: sx, y: sy });
     this.cam.scale = Math.max(0.3, Math.min(3.2, this.cam.scale * factor));
     var after = this.worldToScreen(before);
@@ -67,6 +119,18 @@ VMAP.Renderer = (function () {
 
   Renderer.prototype.draw = function (view) {
     var ctx = this.ctx, cam = this.cam;
+
+    // critically-damped camera glide toward any active target
+    if (this.camTarget) {
+      var t = this.camTarget, k = 0.16;
+      cam.scale += (t.scale - cam.scale) * k;
+      cam.tx += (t.tx - cam.tx) * k;
+      cam.ty += (t.ty - cam.ty) * k;
+      if (Math.abs(t.scale - cam.scale) < 0.0008 && Math.abs(t.tx - cam.tx) < 0.4 && Math.abs(t.ty - cam.ty) < 0.4) {
+        cam.scale = t.scale; cam.tx = t.tx; cam.ty = t.ty; this.camTarget = null;
+      }
+    }
+
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     ctx.clearRect(0, 0, this.w, this.h);
 
@@ -175,23 +239,84 @@ VMAP.Renderer = (function () {
     for (var i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
   };
 
-  // Bright halo under a planned journey path.
+  // Bright halo under a planned journey path — draws on from A→B, then flows.
   Renderer.prototype._drawRouteHalo = function (pathIds) {
-    var ctx = this.ctx, net = this.net;
-    ctx.lineCap = "round"; ctx.lineJoin = "round";
-    ctx.strokeStyle = "rgba(255,255,255,0.85)";
-    ctx.lineWidth = 13;
-    ctx.shadowColor = "rgba(255,255,255,0.6)";
-    ctx.shadowBlur = 14;
-    ctx.beginPath();
-    var s0 = net.stationsById[pathIds[0]];
-    ctx.moveTo(s0.x, s0.y);
-    for (var i = 1; i < pathIds.length; i++) {
-      var s = net.stationsById[pathIds[i]];
-      ctx.lineTo(s.x, s.y);
+    var ctx = this.ctx, net = this.net, i;
+    var pts = [];
+    for (i = 0; i < pathIds.length; i++) { var s = net.stationsById[pathIds[i]]; if (s) pts.push(s); }
+    if (pts.length < 2) return;
+
+    // cumulative length so we can reveal the stroke proportionally
+    var total = 0, segLen = [0];
+    for (i = 1; i < pts.length; i++) { total += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y); segLen.push(total); }
+
+    var p = 1;
+    if (this._routeAnim) {
+      var el = (now() - this._routeAnim) / 760;
+      p = el >= 1 ? 1 : easeInOutCubic(clamp01(el));
     }
-    ctx.stroke();
+
+    function tracePath() {
+      ctx.beginPath();
+      ctx.moveTo(pts[0].x, pts[0].y);
+      for (var j = 1; j < pts.length; j++) ctx.lineTo(pts[j].x, pts[j].y);
+    }
+
+    ctx.save();
+    ctx.lineCap = "round"; ctx.lineJoin = "round";
+
+    // reveal via a dash that uncovers from the start
+    ctx.setLineDash([total, total]);
+    ctx.lineDashOffset = total * (1 - p);
+
+    // soft white halo
+    ctx.strokeStyle = "rgba(255,255,255,0.82)";
+    ctx.lineWidth = 13;
+    ctx.shadowColor = "rgba(150,200,255,0.65)"; ctx.shadowBlur = 16;
+    tracePath(); ctx.stroke();
     ctx.shadowBlur = 0;
+
+    if (this.reduceMotion) {
+      ctx.setLineDash([]);
+      ctx.strokeStyle = "rgba(120,225,170,0.9)"; ctx.lineWidth = 4;
+      tracePath(); ctx.stroke();
+      ctx.restore();
+      return;
+    }
+
+    // flowing accent dashes on top (only along the revealed portion)
+    ctx.setLineDash([9, 13]);
+    ctx.lineDashOffset = -(now() / 36) % 22;
+    if (p < 1) {
+      // while revealing, also clip flow to the revealed length
+      ctx.save();
+      ctx.setLineDash([Math.max(0.001, total * p), total]);
+      ctx.lineDashOffset = 0;
+      ctx.strokeStyle = "rgba(120,225,170,0.95)"; ctx.lineWidth = 4;
+      tracePath(); ctx.stroke();
+      ctx.restore();
+    } else {
+      ctx.strokeStyle = "rgba(120,225,170,0.9)"; ctx.lineWidth = 4;
+      tracePath(); ctx.stroke();
+    }
+
+    // glowing comet head riding the leading edge while it draws
+    if (p < 1) {
+      var d = total * p, k = 1;
+      while (k < segLen.length && segLen[k] < d) k++;
+      if (k < segLen.length) {
+        var a = pts[k - 1], b = pts[k];
+        var f = (d - segLen[k - 1]) / Math.max(1, segLen[k] - segLen[k - 1]);
+        var hx = a.x + (b.x - a.x) * f, hy = a.y + (b.y - a.y) * f;
+        ctx.setLineDash([]);
+        ctx.shadowColor = "rgba(150,255,200,0.95)"; ctx.shadowBlur = 18;
+        ctx.fillStyle = "#eafff3";
+        ctx.beginPath(); ctx.arc(hx, hy, 4.6, 0, Math.PI * 2); ctx.fill();
+        ctx.shadowBlur = 0;
+      }
+    }
+    ctx.setLineDash([]);
+    ctx.restore();
   };
 
   Renderer.prototype._drawStations = function (view) {
@@ -327,29 +452,53 @@ VMAP.Renderer = (function () {
   Renderer.prototype._drawEndpoints = function (view) {
     var ep = view.endpoints;
     if (!ep) return;
-    if (ep.from) this._pin(this.net.stationsById[ep.from], "A", "#5ad17a");
-    if (ep.to) this._pin(this.net.stationsById[ep.to], "B", "#ff6b6b");
+    if (ep.from) this._pin(this.net.stationsById[ep.from], "A", "#5ad17a", this._epAnim.from);
+    if (ep.to) this._pin(this.net.stationsById[ep.to], "B", "#ff6b6b", this._epAnim.to);
   };
 
-  Renderer.prototype._pin = function (s, letter, color) {
+  Renderer.prototype._pin = function (s, letter, color, t0) {
     if (!s) return;
-    var ctx = this.ctx;
+    var ctx = this.ctx, cx = s.x, cy = s.y - 16;
+
+    // drop-in: scale with overshoot + a little fall from above
+    var appear = 1, fall = 0;
+    if (t0) {
+      var e = clamp01((now() - t0) / 460);
+      appear = easeOutBack(e);
+      fall = (1 - easeOutCubic(e)) * 22;
+    }
+
+    // continuous breathing pulse rings under the pin (feels alive)
+    if (!this.reduceMotion) {
+      var ph = (now() / 1300) % 1;
+      ctx.save();
+      ctx.globalAlpha = (1 - ph) * 0.4 * appear;
+      ctx.strokeStyle = color; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(cx, cy, 11 + ph * 18, 0, Math.PI * 2); ctx.stroke();
+      var ph2 = (ph + 0.5) % 1;
+      ctx.globalAlpha = (1 - ph2) * 0.28 * appear;
+      ctx.beginPath(); ctx.arc(cx, cy, 11 + ph2 * 18, 0, Math.PI * 2); ctx.stroke();
+      ctx.restore();
+    }
+
     ctx.save();
+    ctx.translate(cx, cy - fall);
+    ctx.scale(appear, appear);
     ctx.shadowColor = "rgba(0,0,0,0.5)"; ctx.shadowBlur = 8;
     ctx.beginPath();
-    ctx.arc(s.x, s.y - 16, 11, 0, Math.PI * 2);
+    ctx.arc(0, 0, 11, 0, Math.PI * 2);
     ctx.fillStyle = color; ctx.fill();
     ctx.shadowBlur = 0;
     ctx.beginPath();   // little tail
-    ctx.moveTo(s.x - 5, s.y - 10);
-    ctx.lineTo(s.x + 5, s.y - 10);
-    ctx.lineTo(s.x, s.y - 1);
+    ctx.moveTo(-5, 6);
+    ctx.lineTo(5, 6);
+    ctx.lineTo(0, 15);
     ctx.closePath();
     ctx.fillStyle = color; ctx.fill();
     ctx.fillStyle = "#0c1422";
     ctx.font = "700 12px Segoe UI, system-ui, sans-serif";
     ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    ctx.fillText(letter, s.x, s.y - 16);
+    ctx.fillText(letter, 0, 0);
     ctx.textAlign = "start";
     ctx.restore();
   };

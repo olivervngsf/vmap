@@ -18,6 +18,8 @@ VMAP.Renderer = (function () {
     this.dpr = window.devicePixelRatio || 1;
     this.cam = { scale: 1, tx: 0, ty: 0 };
     this.camTarget = null;          // {scale,tx,ty} the camera eases toward
+    this.focus = { type: "fit" };   // what the camera is framing (so we can re-center on resize)
+    this._snap = false;             // when true, framing applies instantly (no ease)
     this._epAnim = {};              // which -> t0 (endpoint drop-in start)
     this._routeAnim = 0;            // t0 of the route draw-on reveal
     // honor the OS "reduce motion" setting — keep feedback, drop the animation
@@ -52,8 +54,20 @@ VMAP.Renderer = (function () {
              w: Math.max(60, r.x1 - r.x0), h: Math.max(60, r.y1 - r.y0) };
   }
   Renderer.prototype._applyCam = function (target) {
-    if (this.reduceMotion) { this.cam.scale = target.scale; this.cam.tx = target.tx; this.cam.ty = target.ty; this.camTarget = null; }
+    if (this.reduceMotion || this._snap) { this.cam.scale = target.scale; this.cam.tx = target.tx; this.cam.ty = target.ty; this.camTarget = null; }
     else this.camTarget = target;
+  };
+
+  // Re-apply whatever the camera is currently framing for the live screen size.
+  // Called on resize / orientation change so the focused point stays centered.
+  Renderer.prototype.reframe = function (snap) {
+    var f = this.focus; if (!f || f.type === "free") return;
+    this._snap = !!snap;
+    if (f.type === "station") this.flyToStation(this.net.stationsById[f.id]);
+    else if (f.type === "route") this.flyToRoute(f.path);
+    else if (f.type === "endpoints") this.flyToEndpoints(f.a, f.b);
+    else this.fit();
+    this._snap = false;
   };
 
   Renderer.prototype.pingEndpoint = function (which) { if (!this.reduceMotion) this._epAnim[which] = now(); };
@@ -78,12 +92,14 @@ VMAP.Renderer = (function () {
       minX = Math.min(minX, s.x); maxX = Math.max(maxX, s.x);
       minY = Math.min(minY, s.y); maxY = Math.max(maxY, s.y);
     });
+    this.focus = { type: "route", path: pathIds.slice() };
     this.flyToBounds(minX, minY, maxX, maxY, 1.6);   // cap so a 2-stop trip keeps context
   };
   // Zoom OUT to frame both endpoints (the moment B is chosen, before results).
   Renderer.prototype.flyToEndpoints = function (aId, bId) {
     var a = this.net.stationsById[aId], b = this.net.stationsById[bId];
     if (!a || !b) return;
+    this.focus = { type: "endpoints", a: aId, b: bId };
     this.flyToBounds(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.max(a.x, b.x), Math.max(a.y, b.y), 1.6);
   };
   // Zoom IN and center on a single station (when only the start is chosen).
@@ -91,6 +107,7 @@ VMAP.Renderer = (function () {
   // display shows more context instead of giant labels), then clamped.
   Renderer.prototype.flyToStation = function (s) {
     if (!s) return;
+    this.focus = { type: "station", id: s.id };
     var r = rectInfo(this._viewRect());
     var scale = Math.max(1.3, Math.min(2.0, 1100 / Math.min(r.w, r.h)));
     this._applyCam({ scale: scale, tx: r.cx - s.x * scale, ty: r.cy - s.y * scale });
@@ -114,11 +131,11 @@ VMAP.Renderer = (function () {
   };
 
   Renderer.prototype.panBy = function (dx, dy) {
-    this.camTarget = null;          // user takes control
+    this.camTarget = null; this.focus = { type: "free" };   // user takes control
     this.cam.tx += dx; this.cam.ty += dy;
   };
   Renderer.prototype.zoomAt = function (sx, sy, factor) {
-    this.camTarget = null;
+    this.camTarget = null; this.focus = { type: "free" };
     var before = this.screenToWorld({ x: sx, y: sy });
     this.cam.scale = Math.max(0.3, Math.min(3.2, this.cam.scale * factor));
     var after = this.worldToScreen(before);
@@ -138,6 +155,7 @@ VMAP.Renderer = (function () {
     this.cam.scale = Math.max(0.3, Math.min(2.4, Math.min(sx, sy)));
     this.cam.tx = (this.w - (minX + maxX) * this.cam.scale) / 2;
     this.cam.ty = (this.h - (minY + maxY) * this.cam.scale) / 2;
+    this.focus = { type: "fit" };
   };
 
   /* ---------------- drawing ---------------- */

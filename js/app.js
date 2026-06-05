@@ -291,6 +291,7 @@
     view.firstDep = null; view.firstLegLive = null;
     clearRouteHighlight();
     renderer.clearAnims();
+    renderer.focus = { type: "free" };   // stop re-framing a now-cleared route on resize
     syncInputs();
     updateFieldDots();
     itinBox().innerHTML = '<p class="no-route">Pick a start and destination to see directions.</p>';
@@ -803,7 +804,11 @@
       case "Escape": view.selected = null; showView(lastTab); break;
     }
   });
-  window.addEventListener("resize", function () { renderer.resize(); });
+  // On any screen change (resize / rotate), re-center whatever the camera is
+  // focused on (the start, the route, or the whole map) for the new size.
+  function onScreenChange() { renderer.resize(); renderer.reframe(true); }
+  window.addEventListener("resize", onScreenChange);
+  window.addEventListener("orientationchange", onScreenChange);
 
   document.getElementById("stat-stations").textContent = net.stations.length;
 

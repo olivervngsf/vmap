@@ -77,12 +77,49 @@
       });
       li.addEventListener("click", function () {
         if (view.hiddenLines[line.id]) return;
-        view.focusLine = view.focusLine === line.id ? null : line.id;
-        refreshLegend();
+        showLineStops(line.id);
       });
       ul.appendChild(li);
     });
     refreshLegend();
+  }
+
+  // The reference "Blue line" rail: numbered stops with code badges.
+  function showLineStops(lineId) {
+    var line = net.linesById[lineId];
+    view.focusLine = lineId; refreshLegend();
+    var rows = line.stations.map(function (sid, i) {
+      var s = net.stationsById[sid];
+      var n = i + 1, num = (n < 10 ? "0" : "") + n;
+      var others = s.codes.filter(function (c) { return c.lineId !== lineId; })
+        .map(function (c) { return codeBadge(c); }).join("");
+      return '<div class="line-stop" data-abbr="' + sid + '">' +
+        '<span class="stop-pin" style="background:' + line.color + ";color:" + textOn(line.color) + '">' + num + "</span>" +
+        '<span class="stop-name">' + s.name + "</span>" +
+        '<span class="combo-badges" style="margin-left:auto">' + others + "</span></div>";
+    }).join("");
+    var dt = document.getElementById("line-detail");
+    dt.innerHTML =
+      '<div class="back-link" id="lines-back">‹ All lines</div>' +
+      '<div class="line-stops-head"><span class="code-badge lg" style="background:' + line.color + ";color:" + textOn(line.color) +
+        '">' + line.letter + '</span><h2 class="insp-title" style="margin:0">' + lineShort(line) + "</h2></div>" +
+      '<p class="insp-sub">' + line.name + " · " + line.stations.length + " stops</p>" +
+      '<div class="line-stops">' + rows + "</div>";
+    document.getElementById("lines-home").hidden = true;
+    dt.hidden = false;
+    dt.querySelector("#lines-back").addEventListener("click", function () {
+      dt.hidden = true; document.getElementById("lines-home").hidden = false;
+      view.focusLine = null; refreshLegend();
+    });
+    dt.querySelectorAll(".line-stop").forEach(function (row) {
+      row.addEventListener("click", function () { view.selected = { type: "station", id: row.dataset.abbr }; openDetail(); });
+    });
+  }
+  function resetLinesView() {
+    var dt = document.getElementById("line-detail");
+    if (dt) { dt.hidden = true; }
+    var home = document.getElementById("lines-home");
+    if (home) home.hidden = false;
   }
   function refreshLegend() {
     document.querySelectorAll(".line-item").forEach(function (li) {
@@ -92,24 +129,97 @@
     });
   }
 
-  /* ---------- planner selects ---------- */
-  function buildSelects() {
-    var sorted = net.stations.slice().sort(function (a, b) { return a.name.localeCompare(b.name); });
-    ["from-select", "to-select"].forEach(function (selId) {
-      var sel = document.getElementById(selId);
-      sorted.forEach(function (s) {
-        var o = document.createElement("option");
-        o.value = s.id; o.textContent = s.name;
-        sel.appendChild(o);
-      });
+  /* ---------- code badges (the POV layer) ---------- */
+  function textOn(hex) {
+    var c = (hex || "#888").replace("#", "");
+    if (c.length === 3) c = c[0] + c[0] + c[1] + c[1] + c[2] + c[2];
+    var n = parseInt(c, 16), r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+    return (0.299 * r + 0.587 * g + 0.114 * b) > 150 ? "#0c1422" : "#ffffff";
+  }
+  function codeBadge(c, big) {
+    return '<span class="code-badge' + (big ? " lg" : "") + '" style="background:' + c.color +
+      ";color:" + textOn(c.color) + '">' + c.code + "</span>";
+  }
+  function codeBadges(station, big) {
+    return (station.codes || []).map(function (c) { return codeBadge(c, big); }).join("");
+  }
+  // single code chip for a station on a specific line (used in trip steps)
+  function codeChip(lineId, abbr) {
+    var map = net.codeByLineStation[lineId]; if (!map) return "";
+    var code = map[abbr]; if (!code) return "";
+    var color = net.linesById[lineId].color;
+    return ' <span class="code-badge" style="background:' + color + ";color:" + textOn(color) + '">' + code + "</span>";
+  }
+  function legLineId(leg) {
+    var key = String(leg.line || "").split(" ")[0].toLowerCase();
+    return net.linesById[key] ? key : null;
+  }
+
+  /* ---------- type-to-search station pickers ---------- */
+  var sortedStations = net.stations.slice().sort(function (a, b) { return a.name.localeCompare(b.name); });
+  function matchStations(q) {
+    q = q.trim().toLowerCase();
+    if (!q) return sortedStations;
+    var starts = [], contains = [];
+    sortedStations.forEach(function (s) {
+      var name = s.name.toLowerCase();
+      var codeHit = (s.codes || []).some(function (c) { return c.code.toLowerCase().indexOf(q) === 0; });
+      if (name.indexOf(q) === 0 || codeHit) starts.push(s);
+      else if (name.indexOf(q) > 0 || s.id.toLowerCase().indexOf(q) === 0) contains.push(s);
     });
-    document.getElementById("from-select").addEventListener("change", function (e) { view.endpoints.from = e.target.value || null; });
-    document.getElementById("to-select").addEventListener("change", function (e) { view.endpoints.to = e.target.value || null; });
+    return starts.concat(contains);
   }
-  function syncSelects() {
-    document.getElementById("from-select").value = view.endpoints.from || "";
-    document.getElementById("to-select").value = view.endpoints.to || "";
+  function buildInputs() {
+    makeCombo("from"); makeCombo("to");
   }
+  function makeCombo(which) {
+    var input = document.getElementById(which + "-input");
+    var list = document.getElementById(which + "-list");
+    var activeIdx = -1, items = [];
+
+    function render(q) {
+      items = matchStations(q).slice(0, 8);
+      if (!items.length) { list.innerHTML = '<li class="combo-empty">No station found</li>'; }
+      else list.innerHTML = items.map(function (s) {
+        return '<li class="combo-item" data-abbr="' + s.id + '">' +
+          '<span class="combo-name">' + s.name + "</span>" +
+          '<span class="combo-badges">' + codeBadges(s) + "</span></li>";
+      }).join("");
+      activeIdx = -1;
+      list.classList.remove("hidden");
+    }
+    function close() { list.classList.add("hidden"); }
+    function choose(abbr) {
+      var s = net.stationsById[abbr]; if (!s) return;
+      view.endpoints[which] = abbr;
+      input.value = s.name;
+      close();
+    }
+
+    input.addEventListener("focus", function () { render(input.value === net._nameOf(view.endpoints[which]) ? "" : input.value); });
+    input.addEventListener("input", function () { view.endpoints[which] = null; render(input.value); });
+    input.addEventListener("keydown", function (e) {
+      var rows = list.querySelectorAll(".combo-item");
+      if (e.key === "ArrowDown") { e.preventDefault(); activeIdx = Math.min(activeIdx + 1, rows.length - 1); }
+      else if (e.key === "ArrowUp") { e.preventDefault(); activeIdx = Math.max(activeIdx - 1, 0); }
+      else if (e.key === "Enter") { e.preventDefault(); var pick = rows[activeIdx < 0 ? 0 : activeIdx]; if (pick) choose(pick.dataset.abbr); return; }
+      else if (e.key === "Escape") { close(); return; }
+      else return;
+      rows.forEach(function (r, i) { r.classList.toggle("active", i === activeIdx); });
+      if (rows[activeIdx]) rows[activeIdx].scrollIntoView({ block: "nearest" });
+    });
+    input.addEventListener("blur", function () { setTimeout(close, 150); });
+    // mousedown (not click) so it fires before blur closes the list
+    list.addEventListener("mousedown", function (e) {
+      var li = e.target.closest(".combo-item"); if (!li) return;
+      e.preventDefault(); choose(li.dataset.abbr);
+    });
+  }
+  function syncInputs() {
+    document.getElementById("from-input").value = net._nameOf(view.endpoints.from);
+    document.getElementById("to-input").value = net._nameOf(view.endpoints.to);
+  }
+  net._nameOf = function (abbr) { return abbr && net.stationsById[abbr] ? net.stationsById[abbr].name : ""; };
 
   /* ---------- trip planning ---------- */
   function rideMinutes(step) { return Math.max(2, Math.round(step.stops * 2.1)); }
@@ -156,7 +266,7 @@
     view.endpoints.from = view.endpoints.to = null;
     view.firstDep = null; view.firstLegLive = null;
     clearRouteHighlight();
-    syncSelects();
+    syncInputs();
     itinBox().innerHTML = '<p class="no-route">Pick a start and destination to see directions.</p>';
     updatePlanHeader();
     setPlanCollapsed(false);
@@ -236,8 +346,10 @@
   }
 
   function optionStepsHTML(o) {
-    var html = stepHTML("var(--green)", "Start", "<b>" + nm(o.legs[0].origin) + "</b>", o.legs[0].color, false);
+    var lid0 = legLineId(o.legs[0]);
+    var html = stepHTML("var(--green)", "Start", "<b>" + nm(o.legs[0].origin) + "</b>" + (lid0 ? codeChip(lid0, o.legs[0].origin) : ""), o.legs[0].color, false);
     o.legs.forEach(function (l, j) {
+      var lid = legLineId(l);
       var stops = stopCount(l.origin, l.dest);
       var live = "";
       if (j === 0 && view.firstLegLive) {
@@ -250,8 +362,8 @@
         "toward " + nm(l.headAbbr) +
         "<br>" + (stops != null ? "ride " + stops + " stop" + (stops === 1 ? "" : "s") + " · " : "") +
         l.depart + " – " + l.arrive + live +
-        '<br><span class="step-alight">↓ exit at <b>' + nm(l.dest) + "</b></span>";
-      html += stepHTML(l.color, nm(l.origin), action, l.color, false);
+        '<br><span class="step-alight">↓ exit at <b>' + nm(l.dest) + "</b>" + (lid ? codeChip(lid, l.dest) : "") + "</span>";
+      html += stepHTML(l.color, nm(l.origin) + (lid ? codeChip(lid, l.origin) : ""), action, l.color, false);
       if (j < o.legs.length - 1) {
         html += stepHTML("var(--amber)", nm(l.dest),
           "Transfer to your next train", "#9aa6bd", false);
@@ -371,6 +483,7 @@
     ["plan", "lines", "detail"].forEach(function (v) {
       document.getElementById("view-" + v).hidden = (v !== name);
     });
+    if (name === "lines") resetLinesView();
     document.getElementById("seg").style.display = (name === "detail") ? "none" : "flex";
     if (name !== "detail") {
       lastTab = name;
@@ -443,6 +556,7 @@
     detailBody.innerHTML =
       '<span class="insp-tag">' + (s.interchange ? "Interchange" : "Station") + "</span>" +
       '<h2 class="insp-title">' + s.name + "</h2>" +
+      '<div class="chips" style="margin-bottom:6px">' + codeBadges(s, true) + "</div>" +
       '<p class="insp-sub">' + s.lines.length + " line" + (s.lines.length === 1 ? "" : "s") + " · " + id + "</p>" +
       '<div class="chips">' + chips + "</div>" +
       '<div class="insp-actions">' +
@@ -456,7 +570,7 @@
         view.endpoints[which] = id;
         if (which === "from" && view.endpoints.to === id) view.endpoints.to = null;
         if (which === "to" && view.endpoints.from === id) view.endpoints.from = null;
-        syncSelects(); planTrip();
+        syncInputs(); planTrip();
         // once both ends are chosen, jump to the Plan view to show directions
         if (view.endpoints.from && view.endpoints.to) { view.selected = null; showView("plan"); expandSheet(); }
         else renderStationInspector(id);
@@ -603,7 +717,7 @@
   document.getElementById("btn-clear-route").addEventListener("click", clearTrip);
   document.getElementById("btn-swap").addEventListener("click", function () {
     var f = view.endpoints.from; view.endpoints.from = view.endpoints.to; view.endpoints.to = f;
-    syncSelects(); planTrip();
+    syncInputs(); planTrip();
   });
 
   document.addEventListener("keydown", function (e) {
@@ -627,7 +741,7 @@
   function frame() { renderer.draw(view); requestAnimationFrame(frame); }
 
   buildLegend();
-  buildSelects();
+  buildInputs();
   clearTrip();
   showView("plan");
   probeLive();

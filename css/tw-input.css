@@ -1,0 +1,51 @@
+@import "tailwindcss";
+
+/* Tailwind scans these for class names used in markup + JS template strings */
+@source "../index.html";
+@source "../js/**/*.js";
+
+/* ---- new components, built with Tailwind utilities (@apply) ---- */
+@layer components {
+  /* type-to-search station picker */
+  .combo {
+    @apply relative flex items-center gap-2.5 rounded-[13px] px-3 mb-2;
+    background: var(--fill);
+  }
+  .combo-input {
+    @apply flex-1 min-w-0 border-0 bg-transparent py-3 text-[16px] outline-none;
+    color: var(--label);
+  }
+  .combo-input::placeholder { color: var(--tertiary); }
+  .combo-list {
+    @apply absolute left-0 right-0 top-[calc(100%+6px)] z-50 max-h-72 overflow-y-auto
+           rounded-2xl border p-1 shadow-2xl;
+    border-color: var(--hairline);
+    background: var(--panel-solid);
+  }
+  .combo-item {
+    @apply flex items-center justify-between gap-3 rounded-xl px-3 py-2.5 cursor-pointer;
+  }
+  .combo-item:hover, .combo-item.active { background: var(--fill); }
+  .combo-name { @apply text-[14px] font-medium truncate; color: var(--label); }
+  .combo-badges { @apply flex items-center gap-1 shrink-0; }
+  .combo-empty { @apply px-3 py-3 text-[13px]; color: var(--tertiary); }
+
+  /* the POV code chip: letter+number, line-colored */
+  .code-badge {
+    @apply inline-flex items-center justify-center rounded-md px-1.5 py-0.5
+           text-[10px] font-extrabold leading-none tracking-tight align-middle;
+  }
+  .code-badge.lg { @apply text-[12px] px-2 py-1 rounded-lg; }
+
+  /* numbered line-stops list (the reference "Blue line" rail) */
+  .line-stops { @apply mt-1 flex flex-col; }
+  .line-stop { @apply flex items-center gap-3 py-2 cursor-pointer rounded-lg; }
+  .line-stop:hover { background: var(--fill); }
+  .stop-pin {
+    @apply flex h-7 w-7 shrink-0 items-center justify-center rounded-full
+           text-[11px] font-extrabold text-white;
+  }
+  .stop-name { @apply text-[14px]; color: var(--label); }
+  .line-stops-head { @apply mb-2 flex items-center gap-2.5; }
+  .back-link { @apply mb-3 inline-flex items-center gap-1.5 text-[14px] font-semibold cursor-pointer; color: var(--label); }
+}

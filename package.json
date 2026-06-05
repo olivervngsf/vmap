@@ -1,0 +1,21 @@
+{
+  "name": "vmap",
+  "version": "1.0.0",
+  "description": "An interactive, **real-time map of the San Francisco Bay Area's BART system**. It draws the real network (all 50 stations, the six color lines, real coordinates), animates trains along the lines, shows **live departures** from the official BART API when you click a station, and includes a **trip planner** that tells you which trains to take and where to transfer.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build:css": "@tailwindcss/cli -i css/tw-input.css -o css/tailwind.css --minify"
+  },
+  "repository": {
+    "type": "git",
+    "url": "http://local_proxy@127.0.0.1:45655/git/olivervngsf/vmap"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.3.0",
+    "tailwindcss": "^4.3.0"
+  }
+}

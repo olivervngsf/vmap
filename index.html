@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <title>BART Live — real-time Bay Area transit</title>
+  <link rel="stylesheet" href="css/tailwind.css" />
   <link rel="stylesheet" href="css/styles.css" />
 </head>
 <body>
@@ -52,16 +53,18 @@
           <svg class="chev" viewBox="0 0 24 24" width="18" height="18"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
         <div id="plan-form">
-          <div class="field">
+          <div class="combo" id="from-combo">
             <span class="field-dot dot-a"></span>
-            <select id="from-select" aria-label="From station"><option value="">Choose start…</option></select>
+            <input id="from-input" class="combo-input" type="text" autocomplete="off" spellcheck="false" placeholder="Choose start…" aria-label="From station" />
+            <ul id="from-list" class="combo-list hidden"></ul>
           </div>
           <button id="btn-swap" class="swap" title="Swap" aria-label="Swap origin and destination">
             <svg viewBox="0 0 24 24" width="16" height="16"><path d="M7 4v16M7 4L4 7M7 4l3 3M17 20V4M17 20l3-3M17 20l-3-3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </button>
-          <div class="field">
+          <div class="combo" id="to-combo">
             <span class="field-dot dot-b"></span>
-            <select id="to-select" aria-label="To station"><option value="">Choose destination…</option></select>
+            <input id="to-input" class="combo-input" type="text" autocomplete="off" spellcheck="false" placeholder="Choose destination…" aria-label="To station" />
+            <ul id="to-list" class="combo-list hidden"></ul>
           </div>
           <div class="plan-actions">
             <button id="btn-route" class="btn-primary">Get directions</button>
@@ -74,12 +77,15 @@
 
       <!-- LINES -->
       <section id="view-lines" class="view" hidden>
-        <p class="hint-text">Tap a line to focus it · tap its dot to hide it.</p>
-        <ul id="line-list"></ul>
-        <div class="panel-foot">
-          <span><b id="stat-stations">0</b> stations · 6 lines</span>
-          <a href="https://api.bart.gov" target="_blank" rel="noopener">Live data: BART API</a>
+        <div id="lines-home">
+          <p class="hint-text">Tap a line to see its stops · tap the dot to hide it.</p>
+          <ul id="line-list"></ul>
+          <div class="panel-foot">
+            <span><b id="stat-stations">0</b> stations · 6 lines</span>
+            <a href="https://api.bart.gov" target="_blank" rel="noopener">Live data: BART API</a>
+          </div>
         </div>
+        <div id="line-detail" hidden></div>
       </section>
 
       <!-- DETAIL (station departures / train info) -->

@@ -75,12 +75,42 @@ window.VMAP = window.VMAP || {};
 
   stations.forEach(function (s) { s.interchange = s.lines.length > 1; });
 
+  /*
+   * Station codes (the "POV" layer): letter = line color initial
+   * (Blue=B, Orange=O, Green=G, Red=R, Yellow=Y, Beige OAK shuttle=K),
+   * number = the stop's 1-based position from the start to the end of that
+   * line's station list (zero-padded to 2 digits, e.g. B01..B18). A station on
+   * several lines gets one code per line.
+   */
+  var LETTER = { yellow: "Y", orange: "O", green: "G", red: "R", blue: "B", beige: "K" };
+  stations.forEach(function (s) { s.codes = []; });
+  lines.forEach(function (line) {
+    var letter = LETTER[line.colorKey] || line.colorKey.charAt(0).toUpperCase();
+    line.letter = letter;
+    line.stations.forEach(function (sid, i) {
+      var s = stationsById[sid];
+      if (!s) return;
+      var n = i + 1;
+      s.codes.push({
+        lineId: line.id, letter: letter, num: n,
+        code: letter + (n < 10 ? "0" : "") + n,
+        color: line.color
+      });
+    });
+  });
+  var codeByLineStation = {};   // lineId -> stationAbbr -> code string
+  lines.forEach(function (line) { codeByLineStation[line.id] = {}; });
+  stations.forEach(function (s) {
+    s.codes.forEach(function (c) { codeByLineStation[c.lineId][s.id] = c.code; });
+  });
+
   VMAP.network = {
     system: "BART",
     stations: stations,
     stationsById: stationsById,
     lines: lines,
     linesById: linesById,
+    codeByLineStation: codeByLineStation,
     geography: { river: [], parks: [] },   // map is purely the transit network
     project: project,
     worldSize: { w: TARGET_W, h: spanY * scale }
